@@ -21,6 +21,8 @@ declare global {
 }
 
 const tabs = ["Overview", "Rules", "Pending", "Settings", "Help"] as const;
+const turnstileLoadRetryMs = 250;
+const maxTurnstileLoadAttempts = 40;
 
 export function App() {
   const [email, setEmail] = useState("");
@@ -81,12 +83,12 @@ export function App() {
 
       if (!window.turnstile) {
         attempts += 1;
-        if (attempts > 40) {
+        if (attempts > maxTurnstileLoadAttempts) {
           setTurnstileError("Turnstile failed to load. Refresh and try again.");
           return;
         }
 
-        setTimeout(renderTurnstile, 250);
+        setTimeout(renderTurnstile, turnstileLoadRetryMs);
         return;
       }
 
