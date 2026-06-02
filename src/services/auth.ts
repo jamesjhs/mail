@@ -160,6 +160,7 @@ export const consumePasswordReset = async (token: string, newPassword: string) =
     [hash],
   );
 
+  // Intentional global invalidation: any outstanding OTP/magic-link challenge must be revoked after a password reset.
   await exec("DELETE FROM auth_challenge");
   return true;
 };
