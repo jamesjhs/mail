@@ -79,6 +79,13 @@ const webhookLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const staticLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const csrfProtection = csrf({
   cookie: {
     httpOnly: true,
@@ -341,8 +348,8 @@ app.post("/hook", webhookLimiter, express.raw({ type: "application/json" }), asy
 });
 
 if (await fs.stat(clientDist).then(() => true).catch(() => false)) {
-  app.use(express.static(clientDist));
-  app.get("*", (_req, res) => {
+  app.use(staticLimiter, express.static(clientDist));
+  app.get("*", staticLimiter, (_req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
   });
 }
