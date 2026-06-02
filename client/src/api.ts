@@ -59,6 +59,7 @@ export const api = {
       body: JSON.stringify(rule),
     }),
   deleteRule: (id: number) => request<{ success: boolean }>(`/api/admin/rules/${id}`, { method: "DELETE" }),
+  generateRuleWebhookKey: () => request<{ webhookKey: string }>("/api/admin/rules/generate-webhook-key", { method: "POST" }),
   listAudit: (page: number, pageSize = 20) =>
     request<{ total: number; items: AuditItem[] }>(`/api/admin/messages?page=${page}&pageSize=${pageSize}`),
   listPending: () => request<PendingItem[]>("/api/admin/pending"),
@@ -69,6 +70,11 @@ export const api = {
     request<{ success: boolean }>("/api/admin/settings/webhook-signing-secret", {
       method: "PUT",
       body: JSON.stringify({ value }),
+    }),
+  updateAdminAccount: (payload: { email?: string; currentPassword: string; newPassword?: string }) =>
+    request<{ success: boolean; email: string }>("/api/admin/settings/account", {
+      method: "PUT",
+      body: JSON.stringify(payload),
     }),
   getHelp: () => request<string>("/api/admin/help"),
   resetPassword: (payload: { token: string; password: string }) =>

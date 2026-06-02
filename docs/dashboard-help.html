@@ -29,6 +29,7 @@
         <h2>Rules</h2>
         <p>Create wildcard or regex rules that match the local part of recipient email addresses (e.g. <code>pingme-(.*)</code>).</p>
         <p>Use <code>{ID}</code> in destination URLs to inject the captured identifier.</p>
+        <p>Each rule has its own webhook key. Generate a secure key when creating a rule, then reveal/copy it from the rules table and validate it downstream via <code>X-Jahosi-Webhook-Key</code>.</p>
       </section>
       <section class="card">
         <h2>Pending Queue</h2>
@@ -36,7 +37,7 @@
       </section>
       <section class="card">
         <h2>Security</h2>
-        <p>Login requires password + Cloudflare Turnstile + emailed OTP or magic link. Webhook signatures are validated using the configured signing secret.</p>
+        <p>Login requires password + Cloudflare Turnstile + emailed OTP or magic link. In Settings, admins can update account email/password and manage webhook signing secret.</p>
       </section>
     </div>
 

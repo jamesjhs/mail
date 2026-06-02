@@ -182,6 +182,40 @@ export const getAdminEmail = async () => {
   return row?.email ?? env.ADMIN_EMAIL;
 };
 
+export const updateAdminCredentials = async ({
+  email,
+  currentPassword,
+  newPassword,
+}: {
+  email?: string;
+  currentPassword: string;
+  newPassword?: string;
+}) => {
+  const user = await get<{ email: string; password_hash: string | null }>(
+    "SELECT email, password_hash FROM admin_user WHERE id = 1",
+  );
+
+  if (!user || !user.password_hash) {
+    return { success: false };
+  }
+
+  const passwordValid = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!passwordValid) {
+    return { success: false };
+  }
+
+  const nextEmail = email?.trim() ? email.trim() : user.email;
+  const nextPasswordHash = newPassword ? await bcrypt.hash(newPassword, 12) : user.password_hash;
+
+  await exec("UPDATE admin_user SET email = ?, password_hash = ? WHERE id = 1", [nextEmail, nextPasswordHash]);
+
+  if (newPassword) {
+    await exec("DELETE FROM auth_challenge");
+  }
+
+  return { success: true, email: nextEmail };
+};
+
 export const purgeExpiredFailedMessages = async () => {
   await exec(
     "DELETE FROM pending_message WHERE status IN ('FAILED', 'BOUNCED') AND datetime(last_attempt) < datetime('now', '-24 hours')",

@@ -15,6 +15,7 @@ Version: v0.0.1
 - `POST /api/auth/verify-otp` - completes OTP login
 - `GET /api/auth/magic` - completes magic-link login
 - `POST /api/auth/reset-password` - set password from reset token
+- `PUT /api/admin/settings/account` - update admin email and/or password
 - `GET /api/admin/*` - protected admin operations
 
 ## Security controls
@@ -28,6 +29,7 @@ Version: v0.0.1
 1. Receive inbound payload at `/hook`
 2. Match local-prefix recipient against regex/wildcard rules
 3. Forward unmodified payload to destination endpoint
+   - Includes per-rule header `X-Jahosi-Webhook-Key`
 4. On failure, store in `pending_message` as `PENDING`
 5. Retry every 5 minutes up to 5 attempts
 6. Mark as `FAILED` when retry limit is reached

@@ -43,6 +43,10 @@ export function App() {
   const [page, setPage] = useState(1);
   const [pending, setPending] = useState<PendingItem[]>([]);
   const [helpHtml, setHelpHtml] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [savedAdminEmail, setSavedAdminEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [secretDirty, setSecretDirty] = useState(false);
   const [secretVisible, setSecretVisible] = useState(false);
@@ -59,7 +63,9 @@ export function App() {
 
     api
       .getMe()
-      .then(async () => {
+      .then(async (me) => {
+        setAdminEmail(me.email);
+        setSavedAdminEmail(me.email);
         await api.getCsrfToken();
         setAuthenticated(true);
       })
@@ -126,16 +132,19 @@ export function App() {
 
   const refreshAdminData = useCallback(
     async (targetPage = page) => {
-      const [fetchedRules, fetchedAudit, fetchedPending, settings] = await Promise.all([
+      const [fetchedRules, fetchedAudit, fetchedPending, settings, me] = await Promise.all([
         api.listRules(),
         api.listAudit(targetPage),
         api.listPending(),
         api.getSettings(),
+        api.getMe(),
       ]);
 
       setRules(fetchedRules);
       setAudit({ total: fetchedAudit.total, items: fetchedAudit.items });
       setPending(fetchedPending);
+      setAdminEmail(me.email);
+      setSavedAdminEmail(me.email);
       setWebhookSecret(settings.find((setting) => setting.key === "webhook_signing_secret")?.value ?? "");
       setSecretDirty(false);
     },
@@ -353,6 +362,49 @@ export function App() {
           <>
             <h2>Security settings</h2>
             <label className="stack">
+              Admin email
+              <input value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} autoComplete="email" />
+            </label>
+            <label className="stack">
+              Current password
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                autoComplete="current-password"
+              />
+            </label>
+            <label className="stack">
+              New password (optional)
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                autoComplete="new-password"
+                minLength={10}
+              />
+            </label>
+            <button
+              disabled={!currentPassword || (!newPassword && adminEmail === savedAdminEmail)}
+              onClick={async () => {
+                const payload: { email?: string; currentPassword: string; newPassword?: string } = {
+                  currentPassword,
+                };
+                if (adminEmail !== savedAdminEmail) {
+                  payload.email = adminEmail;
+                }
+                if (newPassword) {
+                  payload.newPassword = newPassword;
+                }
+                await api.updateAdminAccount(payload);
+                setCurrentPassword("");
+                setNewPassword("");
+                await refreshAdminData();
+              }}
+            >
+              Save account
+            </button>
+            <label className="stack">
               Webhook signing secret
               <div className="secret-row">
                 <input
@@ -402,7 +454,10 @@ function RulesPanel({
     pattern: "",
     patternType: "wildcard" as "wildcard" | "regex",
     endpointUrl: "",
+    webhookKey: "",
   });
+  const [draftWebhookVisible, setDraftWebhookVisible] = useState(false);
+  const [visibleWebhookKeys, setVisibleWebhookKeys] = useState<Record<number, boolean>>({});
 
   return (
     <>
@@ -411,8 +466,10 @@ function RulesPanel({
         className="inline-form"
         onSubmit={async (event) => {
           event.preventDefault();
-          await api.createRule(draft);
-          setDraft({ name: "", pattern: "", patternType: "wildcard", endpointUrl: "" });
+          const webhookKey = draft.webhookKey || (await api.generateRuleWebhookKey()).webhookKey;
+          await api.createRule({ ...draft, webhookKey });
+          setDraft({ name: "", pattern: "", patternType: "wildcard", endpointUrl: "", webhookKey: "" });
+          setDraftWebhookVisible(false);
           await onChanged();
         }}
       >
@@ -431,6 +488,27 @@ function RulesPanel({
           onChange={(e) => setDraft({ ...draft, endpointUrl: e.target.value })}
           required
         />
+        <div className="secret-row">
+          <input
+            placeholder="Rule webhook key"
+            type={draftWebhookVisible ? "text" : "password"}
+            value={draft.webhookKey}
+            onChange={(e) => setDraft({ ...draft, webhookKey: e.target.value })}
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const response = await api.generateRuleWebhookKey();
+              setDraft({ ...draft, webhookKey: response.webhookKey });
+            }}
+          >
+            Generate
+          </button>
+          <button type="button" onClick={() => setDraftWebhookVisible((visible) => !visible)}>
+            {draftWebhookVisible ? "Hide" : "Show"}
+          </button>
+        </div>
         <button type="submit">Add rule</button>
       </form>
 
@@ -441,6 +519,7 @@ function RulesPanel({
             <th>Pattern</th>
             <th>Type</th>
             <th>Endpoint</th>
+            <th>Webhook key</th>
             <th>Enabled</th>
             <th>Delete</th>
           </tr>
@@ -452,6 +531,27 @@ function RulesPanel({
               <td>{rule.pattern}</td>
               <td>{rule.patternType}</td>
               <td>{rule.endpointUrl}</td>
+              <td>
+                <div className="secret-row">
+                  <input type={visibleWebhookKeys[rule.id] ? "text" : "password"} value={rule.webhookKey} readOnly />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisibleWebhookKeys((current) => ({ ...current, [rule.id]: !current[rule.id] }))
+                    }
+                  >
+                    {visibleWebhookKeys[rule.id] ? "Hide" : "Show"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(rule.webhookKey);
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </td>
               <td>
                 <input
                   type="checkbox"
