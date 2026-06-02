@@ -247,7 +247,8 @@ app.get("/api/admin/pending", requireAdmin, async (_req, res) => {
 });
 
 app.post("/api/admin/pending/:id/retry", requireAdmin, async (req, res) => {
-  const ok = await retrySingleMessage(req.params.id);
+  const pendingId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const ok = await retrySingleMessage(pendingId);
   if (!ok) {
     res.status(400).json({ error: "Retry failed" });
     return;
@@ -256,7 +257,8 @@ app.post("/api/admin/pending/:id/retry", requireAdmin, async (req, res) => {
 });
 
 app.post("/api/admin/pending/:id/bounce", requireAdmin, async (req, res) => {
-  const ok = await bounceMessage(req.params.id);
+  const pendingId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const ok = await bounceMessage(pendingId);
   if (!ok) {
     res.status(404).json({ error: "Message not found" });
     return;

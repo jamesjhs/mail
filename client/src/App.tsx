@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { api } from "./api";
 import type { PendingItem, Rule } from "./types";
 
@@ -22,7 +23,10 @@ export function App() {
   const [tab, setTab] = useState<(typeof tabs)[number]>("Overview");
   const [version, setVersion] = useState("v0.0.1");
   const [rules, setRules] = useState<Rule[]>([]);
-  const [audit, setAudit] = useState<{ total: number; items: Array<Record<string, string | null>> }>({ total: 0, items: [] });
+  const [audit, setAudit] = useState<{
+    total: number;
+    items: Array<{ messageId: string; destination: string | null; status: string; eventTime: string }>;
+  }>({ total: 0, items: [] });
   const [page, setPage] = useState(1);
   const [pending, setPending] = useState<PendingItem[]>([]);
   const [helpHtml, setHelpHtml] = useState("");
@@ -50,27 +54,34 @@ export function App() {
       });
   }, []);
 
-  const refreshAdminData = async (targetPage = page) => {
-    const [fetchedRules, fetchedAudit, fetchedPending, settings] = await Promise.all([
-      api.listRules(),
-      api.listAudit(targetPage),
-      api.listPending(),
-      api.getSettings(),
-    ]);
+  const refreshAdminData = useCallback(
+    async (targetPage = page) => {
+      const [fetchedRules, fetchedAudit, fetchedPending, settings] = await Promise.all([
+        api.listRules(),
+        api.listAudit(targetPage),
+        api.listPending(),
+        api.getSettings(),
+      ]);
 
-    setRules(fetchedRules);
-    setAudit({ total: fetchedAudit.total, items: fetchedAudit.items as Array<Record<string, string | null>> });
-    setPending(fetchedPending);
-    setWebhookSecret(settings.find((setting) => setting.key === "webhook_signing_secret")?.value ?? "");
-  };
+      setRules(fetchedRules);
+      setAudit({ total: fetchedAudit.total, items: fetchedAudit.items });
+      setPending(fetchedPending);
+      setWebhookSecret(settings.find((setting) => setting.key === "webhook_signing_secret")?.value ?? "");
+    },
+    [page],
+  );
 
   useEffect(() => {
     if (!authenticated) {
       return;
     }
 
-    refreshAdminData().catch((err) => setError(String(err)));
-  }, [authenticated, page]);
+    const timer = setTimeout(() => {
+      refreshAdminData().catch((err) => setError(String(err)));
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [authenticated, page, refreshAdminData]);
 
   useEffect(() => {
     if (authenticated && tab === "Help") {
@@ -294,7 +305,7 @@ function RulesPanel({
   const [draft, setDraft] = useState({
     name: "",
     pattern: "",
-    patternType: "wildcard" as const,
+    patternType: "wildcard" as "wildcard" | "regex",
     endpointUrl: "",
   });
 
