@@ -1,0 +1,51 @@
+{
+  "name": "jahosi-mail",
+  "version": "0.0.1",
+  "description": "Jahosi Mail gateway server",
+  "main": "dist/server.js",
+  "scripts": {
+    "test": "echo \"No test suite configured\"",
+    "dev": "tsx watch src/server.ts",
+    "build": "npm run build:client && tsc -p tsconfig.json",
+    "build:client": "npm --prefix client run build",
+    "start": "node dist/server.js",
+    "lint": "npm --prefix client run lint",
+    "reset-admin": "tsx src/scripts/reset-admin.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jamesjhs/mail.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/jamesjhs/mail/issues"
+  },
+  "homepage": "https://github.com/jamesjhs/mail#readme",
+  "dependencies": {
+    "@journeyapps/sqlcipher": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^8.0.10",
+    "svix": "^1.95.1",
+    "uuid": "^14.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.9.1",
+    "@types/nodemailer": "^8.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
