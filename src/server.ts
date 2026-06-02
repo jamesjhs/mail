@@ -353,7 +353,7 @@ app.post("/hook", webhookLimiter, express.raw({ type: "application/json" }), asy
 
 if (await fs.stat(clientDist).then(() => true).catch(() => false)) {
   app.use(staticLimiter, express.static(clientDist));
-  app.get("*", staticLimiter, (_req, res) => {
+  app.get("/{*splat}", staticLimiter, (_req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
   });
 }
