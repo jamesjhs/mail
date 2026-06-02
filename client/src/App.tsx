@@ -466,7 +466,7 @@ function RulesPanel({
         className="inline-form"
         onSubmit={async (event) => {
           event.preventDefault();
-          const webhookKey = draft.webhookKey || (await api.generateRuleWebhookKey()).webhookKey;
+          const webhookKey = draft.webhookKey.trim() || (await api.generateRuleWebhookKey()).webhookKey;
           await api.createRule({ ...draft, webhookKey });
           setDraft({ name: "", pattern: "", patternType: "wildcard", endpointUrl: "", webhookKey: "" });
           setDraftWebhookVisible(false);
