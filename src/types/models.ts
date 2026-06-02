@@ -6,6 +6,7 @@ export interface Rule {
   pattern: string;
   endpointUrl: string;
   patternType: "wildcard" | "regex";
+  webhookKey: string;
   enabled: number;
   createdAt: string;
 }

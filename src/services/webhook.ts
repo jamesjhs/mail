@@ -33,11 +33,12 @@ const buildDestination = (url: string, extractedId: string) => {
   return url.replaceAll("{ID}", encodeURIComponent(extractedId));
 };
 
-const postPayload = async (endpoint: string, payload: unknown) => {
+const postPayload = async (endpoint: string, payload: unknown, webhookKey: string) => {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "X-Jahosi-Webhook-Key": webhookKey,
     },
     body: JSON.stringify(payload),
   });
@@ -110,14 +111,22 @@ export const processInboundMessage = async (payload: unknown) => {
   const destination = buildDestination(matched.rule.endpointUrl, matched.extractedId);
 
   try {
-    await postPayload(destination, payload);
+    await postPayload(destination, payload, matched.rule.webhookKey);
     await audit(messageId, "SUCCESS", destination);
     return { messageId, status: "SUCCESS" as const, destination };
   } catch (error) {
     await exec(
-      `INSERT INTO pending_message (id, payload, sender, recipient, destination, status, attempts, last_attempt, received_at, last_error)
-       VALUES (?, ?, ?, ?, ?, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
-      [messageId, JSON.stringify(payload), sender, toValue, destination, error instanceof Error ? error.message : "Unknown error"],
+      `INSERT INTO pending_message (id, payload, sender, recipient, destination, webhook_key, status, attempts, last_attempt, received_at, last_error)
+       VALUES (?, ?, ?, ?, ?, ?, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+      [
+        messageId,
+        JSON.stringify(payload),
+        sender,
+        toValue,
+        destination,
+        matched.rule.webhookKey,
+        error instanceof Error ? error.message : "Unknown error",
+      ],
     );
     await audit(messageId, "PENDING", destination);
     return { messageId, status: "PENDING" as const, destination };
@@ -128,11 +137,11 @@ export const retryPendingMessages = async () => {
   const pending = await all<{
     id: string;
     payload: string;
-    sender: string;
     destination: string;
+    webhook_key: string;
     attempts: number;
   }>(
-    `SELECT id, payload, sender, destination, attempts
+    `SELECT id, payload, destination, webhook_key, attempts
      FROM pending_message
      WHERE status = 'PENDING'
        AND datetime(last_attempt) <= datetime('now', '-5 minutes')`,
@@ -140,7 +149,7 @@ export const retryPendingMessages = async () => {
 
   for (const item of pending) {
     try {
-      await postPayload(item.destination, JSON.parse(item.payload));
+      await postPayload(item.destination, JSON.parse(item.payload), item.webhook_key);
       await exec("DELETE FROM pending_message WHERE id = ?", [item.id]);
       await audit(item.id, "SUCCESS_RETRY", item.destination);
     } catch (error) {
@@ -207,16 +216,17 @@ export const retrySingleMessage = async (id: string) => {
   const row = await get<{
     payload: string;
     destination: string;
+    webhook_key: string;
     attempts: number;
-    sender: string;
-  }>("SELECT payload, destination, attempts, sender FROM pending_message WHERE id = ?", [id]);
+  }>("SELECT payload, destination, webhook_key, attempts FROM pending_message WHERE id = ?", [id]);
 
   if (!row) {
     return false;
   }
 
   try {
-    await postPayload(row.destination, JSON.parse(row.payload));
+    const payload = JSON.parse(row.payload) as Record<string, unknown>;
+    await postPayload(row.destination, payload, row.webhook_key);
     await exec("DELETE FROM pending_message WHERE id = ?", [id]);
     await audit(id, "SUCCESS_RETRY_MANUAL", row.destination);
     return true;

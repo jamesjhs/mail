@@ -84,9 +84,23 @@ export const initializeDatabase = async () => {
       pattern TEXT NOT NULL,
       pattern_type TEXT NOT NULL CHECK (pattern_type IN ('wildcard', 'regex')),
       endpoint_url TEXT NOT NULL,
+      webhook_key TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+  `);
+
+  // Migration: add webhook_key to pre-existing routing_rule tables
+  try {
+    await run("ALTER TABLE routing_rule ADD COLUMN webhook_key TEXT");
+  } catch {
+    // Column already exists – ignore
+  }
+
+  await run(`
+    UPDATE routing_rule
+    SET webhook_key = lower(hex(randomblob(32)))
+    WHERE webhook_key IS NULL OR webhook_key = '';
   `);
 
   await run(`
@@ -96,6 +110,7 @@ export const initializeDatabase = async () => {
       sender TEXT NOT NULL,
       recipient TEXT NOT NULL,
       destination TEXT,
+      webhook_key TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL CHECK (status IN ('PENDING', 'FAILED', 'BOUNCED')),
       attempts INTEGER NOT NULL DEFAULT 0,
       last_attempt TEXT NOT NULL,
@@ -103,6 +118,13 @@ export const initializeDatabase = async () => {
       last_error TEXT
     );
   `);
+
+  // Migration: add webhook_key to pre-existing pending_message tables
+  try {
+    await run("ALTER TABLE pending_message ADD COLUMN webhook_key TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Column already exists – ignore
+  }
 
   await run(`
     CREATE TABLE IF NOT EXISTS message_audit (

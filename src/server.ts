@@ -22,11 +22,12 @@ import {
   pruneExpiredChallenges,
   purgeExpiredFailedMessages,
   setSetting,
+  updateAdminCredentials,
   verifyMagicToken,
   verifyOtp,
   verifyPassword,
 } from "./services/auth.js";
-import { createRule, deleteRule, listRules, updateRule } from "./services/rules.js";
+import { createRule, deleteRule, generateWebhookKey, listRules, updateRule } from "./services/rules.js";
 import { verifyTurnstile } from "./services/turnstile.js";
 import {
   bounceMessage,
@@ -243,6 +244,7 @@ app.post("/api/admin/rules", requireAdmin, csrfProtection, async (req, res) => {
     endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
       message: "Endpoint URL must not point to a private or loopback address",
     }),
+    webhookKey: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -263,6 +265,7 @@ app.put("/api/admin/rules/:id", requireAdmin, csrfProtection, async (req, res) =
     endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
       message: "Endpoint URL must not point to a private or loopback address",
     }),
+    webhookKey: z.string().regex(/^[a-f0-9]{64}$/i),
     enabled: z.coerce.number().min(0).max(1),
   });
   const parsed = schema.safeParse(req.body);
@@ -286,6 +289,10 @@ app.delete("/api/admin/rules/:id", requireAdmin, csrfProtection, async (req, res
 
   await deleteRule(id);
   res.json({ success: true });
+});
+
+app.post("/api/admin/rules/generate-webhook-key", requireAdmin, csrfProtection, (_req, res) => {
+  res.json({ webhookKey: generateWebhookKey() });
 });
 
 app.get("/api/admin/messages", requireAdmin, async (req, res) => {
@@ -333,6 +340,31 @@ app.put("/api/admin/settings/webhook-signing-secret", requireAdmin, csrfProtecti
 
   await setSetting("webhook_signing_secret", parsed.data.value);
   res.json({ success: true });
+});
+
+app.put("/api/admin/settings/account", requireAdmin, csrfProtection, async (req, res) => {
+  const schema = z
+    .object({
+      email: z.string().email().optional(),
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(10).optional(),
+    })
+    .refine((value) => Boolean(value.email || value.newPassword), {
+      message: "Provide a new email or password",
+    });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request" });
+    return;
+  }
+
+  const result = await updateAdminCredentials(parsed.data);
+  if (!result.success) {
+    res.status(401).json({ error: "Current password is incorrect" });
+    return;
+  }
+
+  res.json({ success: true, email: result.email });
 });
 
 app.get("/api/admin/help", requireAdmin, async (_req, res) => {

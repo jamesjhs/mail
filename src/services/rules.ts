@@ -1,9 +1,14 @@
 import { all, exec, get } from "../db/sql.js";
 import type { Rule } from "../types/models.js";
+import { randomBytes } from "node:crypto";
+
+const webhookKeyBytes = 32;
+
+export const generateWebhookKey = () => randomBytes(webhookKeyBytes).toString("hex");
 
 export const listRules = () =>
   all<Rule>(
-    `SELECT id, name, pattern, endpoint_url as endpointUrl, pattern_type as patternType, enabled, created_at as createdAt
+    `SELECT id, name, pattern, endpoint_url as endpointUrl, pattern_type as patternType, webhook_key as webhookKey, enabled, created_at as createdAt
      FROM routing_rule
      ORDER BY id DESC`,
   );
@@ -13,27 +18,36 @@ export const createRule = async ({
   pattern,
   endpointUrl,
   patternType,
+  webhookKey,
 }: {
   name: string;
   pattern: string;
   endpointUrl: string;
   patternType: "wildcard" | "regex";
+  webhookKey?: string;
 }) => {
   await exec(
-    "INSERT INTO routing_rule (name, pattern, endpoint_url, pattern_type) VALUES (?, ?, ?, ?)",
-    [name, pattern, endpointUrl, patternType],
+    "INSERT INTO routing_rule (name, pattern, endpoint_url, pattern_type, webhook_key) VALUES (?, ?, ?, ?, ?)",
+    [name, pattern, endpointUrl, patternType, webhookKey ?? generateWebhookKey()],
   );
 };
 
 export const updateRule = async (
   id: number,
-  payload: { name: string; pattern: string; endpointUrl: string; patternType: "wildcard" | "regex"; enabled: number },
+  payload: {
+    name: string;
+    pattern: string;
+    endpointUrl: string;
+    patternType: "wildcard" | "regex";
+    webhookKey: string;
+    enabled: number;
+  },
 ) => {
   await exec(
     `UPDATE routing_rule
-     SET name = ?, pattern = ?, endpoint_url = ?, pattern_type = ?, enabled = ?
+     SET name = ?, pattern = ?, endpoint_url = ?, pattern_type = ?, webhook_key = ?, enabled = ?
      WHERE id = ?`,
-    [payload.name, payload.pattern, payload.endpointUrl, payload.patternType, payload.enabled, id],
+    [payload.name, payload.pattern, payload.endpointUrl, payload.patternType, payload.webhookKey, payload.enabled, id],
   );
 };
 
@@ -46,7 +60,7 @@ const wildcardToRegex = (pattern: string) =>
 
 export const matchRule = async (prefix: string) => {
   const rules = await all<Rule>(
-    `SELECT id, name, pattern, endpoint_url as endpointUrl, pattern_type as patternType, enabled, created_at as createdAt
+    `SELECT id, name, pattern, endpoint_url as endpointUrl, pattern_type as patternType, webhook_key as webhookKey, enabled, created_at as createdAt
      FROM routing_rule
      WHERE enabled = 1`,
   );
