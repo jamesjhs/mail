@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Jahosi Mail Help</title>
+    <style>
+      body { font-family: Inter, Arial, sans-serif; background:#0d1425; color:#eaf1ff; line-height:1.55; }
+      .hero { padding:1rem; border:1px solid #30456f; border-radius:14px; background:linear-gradient(140deg,#172544,#0f1830); }
+      .grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap:1rem; margin-top:1rem; }
+      .card { border:1px solid #2c3f67; border-radius:12px; padding:0.9rem; background:#101a31; }
+      h1,h2,h3 { color:#e8eeff; }
+      .badge { display:inline-block; padding:0.2rem 0.5rem; border:1px solid #6c8cff; border-radius:999px; font-size:0.8rem; }
+      code { background:#1b2945; padding:0.1rem 0.3rem; border-radius:6px; }
+    </style>
+  </head>
+  <body>
+    <div class="hero">
+      <h1>📬 Jahosi Mail Administrator Help</h1>
+      <p class="badge">Version {{VERSION}}</p>
+      <p>Jahosi Mail receives inbound email payloads from Resend and forwards them to downstream APIs using local-prefix routing rules.</p>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Overview</h2>
+        <p>The overview shows message UUIDs, statuses, destination endpoint, and processing time. Message content details are never displayed in this panel.</p>
+      </section>
+      <section class="card">
+        <h2>Rules</h2>
+        <p>Create wildcard or regex rules that match the local part of recipient email addresses (e.g. <code>pingme-(.*)</code>).</p>
+        <p>Use <code>{ID}</code> in destination URLs to inject the captured identifier.</p>
+      </section>
+      <section class="card">
+        <h2>Pending Queue</h2>
+        <p>Messages that fail delivery are retried up to five times every five minutes. Admins can manually Retry or Bounce.</p>
+      </section>
+      <section class="card">
+        <h2>Security</h2>
+        <p>Login requires password + Cloudflare Turnstile + emailed OTP or magic link. Webhook signatures are validated using the configured signing secret.</p>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:1rem;">
+      <h2>Troubleshooting Quick Guide</h2>
+      <ul>
+        <li>Check <code>/readyz</code> for gateway health.</li>
+        <li>Verify webhook secret in Settings if inbound calls are rejected.</li>
+        <li>If messages stay pending, validate downstream endpoint availability and response status.</li>
+      </ul>
+    </section>
+  </body>
+</html>
