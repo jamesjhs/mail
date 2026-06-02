@@ -49,7 +49,19 @@ if (env.TRUST_PROXY) {
   app.set("trust proxy", 1);
 }
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        scriptSrc: ["'self'", "https://challenges.cloudflare.com"],
+        scriptSrcElem: ["'self'", "https://challenges.cloudflare.com"],
+        frameSrc: ["'self'", "https://challenges.cloudflare.com"],
+        connectSrc: ["'self'", "https://challenges.cloudflare.com"],
+      },
+    },
+  }),
+);
 app.use(cookieParser());
 app.use((req, res, next) => {
   if (req.path === "/hook") {
