@@ -130,6 +130,15 @@ td {
   min-height: 64px;
 }
 
+.secret-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.secret-row input {
+  flex: 1;
+}
+
 footer {
   margin-top: 1rem;
   color: #8898bc;

@@ -31,6 +31,8 @@ export function App() {
   const [pending, setPending] = useState<PendingItem[]>([]);
   const [helpHtml, setHelpHtml] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [secretDirty, setSecretDirty] = useState(false);
+  const [secretVisible, setSecretVisible] = useState(false);
   const [error, setError] = useState("");
 
   const isResetRoute = useMemo(() => window.location.pathname === "/reset-password", []);
@@ -70,6 +72,7 @@ export function App() {
       setAudit({ total: fetchedAudit.total, items: fetchedAudit.items });
       setPending(fetchedPending);
       setWebhookSecret(settings.find((setting) => setting.key === "webhook_signing_secret")?.value ?? "");
+      setSecretDirty(false);
     },
     [page],
   );
@@ -278,11 +281,26 @@ export function App() {
             <h2>Security settings</h2>
             <label className="stack">
               Webhook signing secret
-              <input value={webhookSecret} onChange={(event) => setWebhookSecret(event.target.value)} />
+              <div className="secret-row">
+                <input
+                  type={secretVisible ? "text" : "password"}
+                  value={webhookSecret}
+                  onChange={(event) => {
+                    setWebhookSecret(event.target.value);
+                    setSecretDirty(true);
+                  }}
+                  autoComplete="off"
+                />
+                <button type="button" onClick={() => setSecretVisible((v) => !v)}>
+                  {secretVisible ? "Hide" : "Show"}
+                </button>
+              </div>
             </label>
             <button
+              disabled={!secretDirty}
               onClick={async () => {
                 await api.setWebhookSecret(webhookSecret);
+                setSecretDirty(false);
               }}
             >
               Save secret

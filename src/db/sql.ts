@@ -65,9 +65,17 @@ export const initializeDatabase = async () => {
       otp_hash TEXT NOT NULL,
       magic_token TEXT NOT NULL,
       expires_at TEXT NOT NULL,
-      used INTEGER NOT NULL DEFAULT 0
+      used INTEGER NOT NULL DEFAULT 0,
+      failed_attempts INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  // Migration: add failed_attempts to pre-existing auth_challenge tables
+  try {
+    await run("ALTER TABLE auth_challenge ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists – ignore
+  }
 
   await run(`
     CREATE TABLE IF NOT EXISTS routing_rule (

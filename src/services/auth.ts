@@ -1,12 +1,13 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { env } from "../config/env.js";
 import { all, exec, get } from "../db/sql.js";
 import { sendMail } from "./mail.js";
 
 const challengeExpiryMinutes = 10;
 const resetExpiryMinutes = 30;
+const maxOtpAttempts = 5;
 
 export const ensureAdmin = async () => {
   const existing = await get<{ email: string }>("SELECT email FROM admin_user WHERE id = 1");
@@ -41,7 +42,7 @@ export const verifyPassword = async (email: string, password: string) => {
 
 export const createChallenge = async () => {
   const challengeId = randomUUID();
-  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const otp = randomInt(100000, 1000000).toString();
   const magicToken = randomUUID();
   const otpHash = await bcrypt.hash(otp, 10);
   const expiresAt = new Date(Date.now() + challengeExpiryMinutes * 60_000).toISOString();
@@ -67,14 +68,21 @@ export const verifyOtp = async (challengeId: string, otp: string) => {
     otp_hash: string;
     expires_at: string;
     used: number;
-  }>("SELECT otp_hash, expires_at, used FROM auth_challenge WHERE id = ?", [challengeId]);
+    failed_attempts: number;
+  }>("SELECT otp_hash, expires_at, used, failed_attempts FROM auth_challenge WHERE id = ?", [challengeId]);
 
-  if (!challenge || challenge.used === 1 || new Date(challenge.expires_at).getTime() < Date.now()) {
+  if (
+    !challenge ||
+    challenge.used === 1 ||
+    challenge.failed_attempts >= maxOtpAttempts ||
+    new Date(challenge.expires_at).getTime() < Date.now()
+  ) {
     return false;
   }
 
   const matches = await bcrypt.compare(otp, challenge.otp_hash);
   if (!matches) {
+    await exec("UPDATE auth_challenge SET failed_attempts = failed_attempts + 1 WHERE id = ?", [challengeId]);
     return false;
   }
 

@@ -2,7 +2,6 @@ import express from "express";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
-import csrf from "csurf";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -10,6 +9,8 @@ import { z } from "zod";
 import { env } from "./config/env.js";
 import { initializeDatabase } from "./db/sql.js";
 import { requireAdmin } from "./middleware/auth.js";
+import { csrfProtection, issueCsrfToken } from "./middleware/csrf.js";
+import { isPrivateHostname } from "./utils/net.js";
 import {
   consumePasswordReset,
   createChallenge,
@@ -86,13 +87,7 @@ const staticLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const csrfProtection = csrf({
-  cookie: {
-    httpOnly: true,
-    secure: env.NODE_ENV !== "development",
-    sameSite: "lax",
-  },
-});
+const maxRegexPatternLength = 200;
 
 app.use("/api", apiLimiter);
 
@@ -164,7 +159,7 @@ app.post("/api/auth/verify-otp", authLimiter, async (req, res) => {
   res.json({ success: true });
 });
 
-app.get("/api/auth/magic", async (req, res) => {
+app.get("/api/auth/magic", authLimiter, async (req, res) => {
   const token = String(req.query.token ?? "");
   if (!token) {
     res.status(400).json({ error: "Missing token" });
@@ -189,11 +184,15 @@ app.get("/api/auth/magic", async (req, res) => {
 });
 
 app.post("/api/auth/logout", (_req, res) => {
-  res.clearCookie(env.SESSION_COOKIE_NAME);
+  res.clearCookie(env.SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: env.NODE_ENV !== "development",
+    sameSite: "lax",
+  });
   res.json({ success: true });
 });
 
-app.post("/api/auth/reset-password", async (req, res) => {
+app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
   const schema = z.object({ token: z.string().uuid(), password: z.string().min(10) });
   const parsed = schema.safeParse(req.body);
 
@@ -215,8 +214,9 @@ app.get("/api/admin/me", requireAdmin, async (_req, res) => {
   res.json({ email: await getAdminEmail(), version: appVersion });
 });
 
-app.get("/api/admin/csrf-token", requireAdmin, csrfProtection, (req, res) => {
-  res.json({ csrfToken: req.csrfToken() });
+app.get("/api/admin/csrf-token", requireAdmin, (req, res) => {
+  const token = issueCsrfToken(res);
+  res.json({ csrfToken: token });
 });
 
 app.get("/api/admin/rules", requireAdmin, async (_req, res) => {
@@ -226,9 +226,11 @@ app.get("/api/admin/rules", requireAdmin, async (_req, res) => {
 app.post("/api/admin/rules", requireAdmin, csrfProtection, async (req, res) => {
   const schema = z.object({
     name: z.string().min(1),
-    pattern: z.string().min(1),
+    pattern: z.string().min(1).max(maxRegexPatternLength),
     patternType: z.enum(["wildcard", "regex"]),
-    endpointUrl: z.string().url(),
+    endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
+      message: "Endpoint URL must not point to a private or loopback address",
+    }),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -244,9 +246,11 @@ app.post("/api/admin/rules", requireAdmin, csrfProtection, async (req, res) => {
 app.put("/api/admin/rules/:id", requireAdmin, csrfProtection, async (req, res) => {
   const schema = z.object({
     name: z.string().min(1),
-    pattern: z.string().min(1),
+    pattern: z.string().min(1).max(maxRegexPatternLength),
     patternType: z.enum(["wildcard", "regex"]),
-    endpointUrl: z.string().url(),
+    endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
+      message: "Endpoint URL must not point to a private or loopback address",
+    }),
     enabled: z.coerce.number().min(0).max(1),
   });
   const parsed = schema.safeParse(req.body);
