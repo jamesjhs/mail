@@ -7,9 +7,9 @@
     "test": "echo \"No test suite configured\"",
     "dev": "tsx watch src/server.ts",
     "build": "npm run build:client && tsc -p tsconfig.json",
-    "build:client": "npm --prefix client run build",
+    "build:client": "npm run build --prefix client",
     "start": "node dist/server.js",
-    "lint": "npm --prefix client run lint",
+    "lint": "npm run lint --prefix client",
     "reset-admin": "tsx src/scripts/reset-admin.ts"
   },
   "repository": {
