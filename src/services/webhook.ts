@@ -20,7 +20,7 @@ const extractMailAddress = (value: unknown): string => {
 };
 
 const parseRecipientPrefix = (to: string) => {
-  const mailbox = to.includes("<") ? to.split("<")[1]?.replace(">", "") ?? to : to;
+  const mailbox = to.includes("<") ? to.split("<")[1]?.replace(/[<>]/g, "") ?? to : to;
   const local = mailbox.split("@")[0] ?? "";
   return local.trim();
 };

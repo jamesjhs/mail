@@ -1,10 +1,15 @@
 import type { AuditItem, PendingItem, Rule } from "./types";
 
+let csrfToken = "";
+
 const request = async <T>(url: string, init?: RequestInit): Promise<T> => {
+  const method = init?.method?.toUpperCase() ?? "GET";
+  const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
   const response = await fetch(url, {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(isMutation && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -36,6 +41,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getMe: () => request<{ email: string; version: string }>("/api/admin/me"),
+  getCsrfToken: async () => {
+    const response = await request<{ csrfToken: string }>("/api/admin/csrf-token");
+    csrfToken = response.csrfToken;
+    return response;
+  },
   logout: () => request<{ success: boolean }>("/api/auth/logout", { method: "POST" }),
   listRules: () => request<Rule[]>("/api/admin/rules"),
   createRule: (payload: Omit<Rule, "id" | "enabled">) =>

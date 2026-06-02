@@ -48,7 +48,10 @@ export function App() {
 
     api
       .getMe()
-      .then(() => setAuthenticated(true))
+      .then(async () => {
+        await api.getCsrfToken();
+        setAuthenticated(true);
+      })
       .catch(() => {
         setAuthenticated(false);
       });
@@ -107,6 +110,7 @@ export function App() {
 
     try {
       await api.verifyOtp({ challengeId, otp });
+      await api.getCsrfToken();
       setAuthenticated(true);
       setChallengeId("");
     } catch (err) {

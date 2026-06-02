@@ -46,7 +46,7 @@ export const all = <T>(sql: string, params: unknown[] = []) =>
   });
 
 export const initializeDatabase = async () => {
-  await run(`PRAGMA key = '${env.SQLCIPHER_KEY.replaceAll("'", "''")}';`);
+  await run("PRAGMA key = ?;", [env.SQLCIPHER_KEY]);
   await run("PRAGMA foreign_keys = ON;");
   await run(`
     CREATE TABLE IF NOT EXISTS admin_user (

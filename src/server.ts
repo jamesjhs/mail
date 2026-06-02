@@ -2,6 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
+import csrf from "csurf";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -63,6 +64,30 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 180,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const csrfProtection = csrf({
+  cookie: {
+    httpOnly: true,
+    secure: env.NODE_ENV !== "development",
+    sameSite: "lax",
+  },
+});
+
+app.use("/api", apiLimiter);
 
 app.get("/readyz", async (_req, res) => {
   res.json({
@@ -183,11 +208,15 @@ app.get("/api/admin/me", requireAdmin, async (_req, res) => {
   res.json({ email: await getAdminEmail(), version: appVersion });
 });
 
+app.get("/api/admin/csrf-token", requireAdmin, csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
 app.get("/api/admin/rules", requireAdmin, async (_req, res) => {
   res.json(await listRules());
 });
 
-app.post("/api/admin/rules", requireAdmin, async (req, res) => {
+app.post("/api/admin/rules", requireAdmin, csrfProtection, async (req, res) => {
   const schema = z.object({
     name: z.string().min(1),
     pattern: z.string().min(1),
@@ -205,7 +234,7 @@ app.post("/api/admin/rules", requireAdmin, async (req, res) => {
   res.status(201).json({ success: true });
 });
 
-app.put("/api/admin/rules/:id", requireAdmin, async (req, res) => {
+app.put("/api/admin/rules/:id", requireAdmin, csrfProtection, async (req, res) => {
   const schema = z.object({
     name: z.string().min(1),
     pattern: z.string().min(1),
@@ -225,7 +254,7 @@ app.put("/api/admin/rules/:id", requireAdmin, async (req, res) => {
   res.json({ success: true });
 });
 
-app.delete("/api/admin/rules/:id", requireAdmin, async (req, res) => {
+app.delete("/api/admin/rules/:id", requireAdmin, csrfProtection, async (req, res) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) {
     res.status(400).json({ error: "Invalid id" });
@@ -246,7 +275,7 @@ app.get("/api/admin/pending", requireAdmin, async (_req, res) => {
   res.json(await listPending());
 });
 
-app.post("/api/admin/pending/:id/retry", requireAdmin, async (req, res) => {
+app.post("/api/admin/pending/:id/retry", requireAdmin, csrfProtection, async (req, res) => {
   const pendingId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const ok = await retrySingleMessage(pendingId);
   if (!ok) {
@@ -256,7 +285,7 @@ app.post("/api/admin/pending/:id/retry", requireAdmin, async (req, res) => {
   res.json({ success: true });
 });
 
-app.post("/api/admin/pending/:id/bounce", requireAdmin, async (req, res) => {
+app.post("/api/admin/pending/:id/bounce", requireAdmin, csrfProtection, async (req, res) => {
   const pendingId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const ok = await bounceMessage(pendingId);
   if (!ok) {
@@ -271,7 +300,7 @@ app.get("/api/admin/settings", requireAdmin, async (_req, res) => {
   res.json(settings);
 });
 
-app.put("/api/admin/settings/webhook-signing-secret", requireAdmin, async (req, res) => {
+app.put("/api/admin/settings/webhook-signing-secret", requireAdmin, csrfProtection, async (req, res) => {
   const schema = z.object({ value: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -289,7 +318,7 @@ app.get("/api/admin/help", requireAdmin, async (_req, res) => {
   res.type("html").send(html.replaceAll("{{VERSION}}", appVersion));
 });
 
-app.post("/hook", express.raw({ type: "application/json" }), async (req, res) => {
+app.post("/hook", webhookLimiter, express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = req.body instanceof Buffer ? req.body.toString("utf8") : JSON.stringify(req.body);
 
   const signatureValid = await verifyWebhookSignature({
