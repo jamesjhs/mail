@@ -158,7 +158,7 @@ export function App() {
             </form>
           )}
           {error && <p className="error">{error}</p>}
-          <footer>v0.0.1</footer>
+          <footer>{version}</footer>
         </section>
       </main>
     );

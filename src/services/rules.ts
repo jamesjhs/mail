@@ -52,8 +52,14 @@ export const matchRule = async (prefix: string) => {
   );
 
   for (const rule of rules) {
-    const regex =
-      rule.patternType === "regex" ? new RegExp(rule.pattern, "i") : new RegExp(wildcardToRegex(rule.pattern), "i");
+    let regex: RegExp;
+    try {
+      regex =
+        rule.patternType === "regex" ? new RegExp(rule.pattern, "i") : new RegExp(wildcardToRegex(rule.pattern), "i");
+    } catch {
+      // Skip rules with invalid patterns rather than crashing
+      continue;
+    }
 
     const result = regex.exec(prefix);
     if (result) {
