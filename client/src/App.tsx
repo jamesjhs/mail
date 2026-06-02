@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "./api";
 import type { PendingItem, Rule } from "./types";
@@ -6,7 +6,16 @@ import type { PendingItem, Rule } from "./types";
 declare global {
   interface Window {
     turnstile?: {
-      render: (selector: string, options: { sitekey: string; callback: (token: string) => void }) => void;
+      render: (
+        selector: string,
+        options: {
+          sitekey: string;
+          callback: (token: string) => void;
+          "expired-callback"?: () => void;
+          "error-callback"?: () => void;
+        },
+      ) => string;
+      remove?: (widgetId: string) => void;
     };
   }
 }
@@ -16,7 +25,9 @@ const tabs = ["Overview", "Rules", "Pending", "Settings", "Help"] as const;
 export function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileError, setTurnstileError] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [otp, setOtp] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -34,18 +45,14 @@ export function App() {
   const [secretDirty, setSecretDirty] = useState(false);
   const [secretVisible, setSecretVisible] = useState(false);
   const [error, setError] = useState("");
+  const turnstileWidgetIdRef = useRef<string | null>(null);
 
   const isResetRoute = useMemo(() => window.location.pathname === "/reset-password", []);
 
   useEffect(() => {
     api.getPublicConfig().then((config) => {
       setVersion(config.version);
-      if (window.turnstile) {
-        window.turnstile.render("#turnstile", {
-          sitekey: config.turnstileSiteKey,
-          callback: setTurnstileToken,
-        });
-      }
+      setTurnstileSiteKey(config.turnstileSiteKey);
     });
 
     api
@@ -58,6 +65,62 @@ export function App() {
         setAuthenticated(false);
       });
   }, []);
+
+  useEffect(() => {
+    if (authenticated || challengeId || !turnstileSiteKey) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const renderTurnstile = () => {
+      if (cancelled) {
+        return;
+      }
+
+      if (!window.turnstile) {
+        attempts += 1;
+        if (attempts > 40) {
+          setTurnstileError("Turnstile failed to load. Refresh and try again.");
+          return;
+        }
+
+        setTimeout(renderTurnstile, 250);
+        return;
+      }
+
+      if (turnstileWidgetIdRef.current) {
+        window.turnstile.remove?.(turnstileWidgetIdRef.current);
+        turnstileWidgetIdRef.current = null;
+      }
+
+      turnstileWidgetIdRef.current = window.turnstile.render("#turnstile", {
+        sitekey: turnstileSiteKey,
+        callback: (token) => {
+          setTurnstileToken(token);
+          setTurnstileError("");
+        },
+        "expired-callback": () => {
+          setTurnstileToken("");
+        },
+        "error-callback": () => {
+          setTurnstileToken("");
+          setTurnstileError("Turnstile challenge failed. Verify your site key domain and retry.");
+        },
+      });
+    };
+
+    renderTurnstile();
+
+    return () => {
+      cancelled = true;
+      if (turnstileWidgetIdRef.current && window.turnstile?.remove) {
+        window.turnstile.remove(turnstileWidgetIdRef.current);
+        turnstileWidgetIdRef.current = null;
+      }
+    };
+  }, [authenticated, challengeId, turnstileSiteKey]);
 
   const refreshAdminData = useCallback(
     async (targetPage = page) => {
@@ -98,6 +161,11 @@ export function App() {
   const login = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
+
+    if (!turnstileToken) {
+      setError(turnstileError || "Complete the Turnstile challenge first.");
+      return;
+    }
 
     try {
       const response = await api.requestAuth({ email, password, turnstileToken });
@@ -142,7 +210,10 @@ export function App() {
                 required
               />
               <div id="turnstile" className="turnstile" />
-              <button type="submit">Send OTP + Magic Link</button>
+              {turnstileError && <p className="error">{turnstileError}</p>}
+              <button type="submit" disabled={!turnstileToken}>
+                Send OTP + Magic Link
+              </button>
             </form>
           ) : (
             <form onSubmit={submitOtp} className="form-stack">
