@@ -28,8 +28,10 @@ Version: v0.0.1
 ## Message lifecycle
 1. Receive inbound payload at `/hook`
 2. Match local-prefix recipient against regex/wildcard rules
-3. Forward unmodified payload to destination endpoint
-   - Includes per-rule header `X-Jahosi-Webhook-Key`
+3. Route each distinct recipient in the Resend `email.received` event's `data.to` array
+   - Email destinations are stored as `mailto:address@example.com` in `endpoint_url`, requiring no database migration
+   - Retrieve content and attachments from Resend and forward through configured SMTP; preserve subject and bodies, set Reply-To to original sender, and include a loop-detection header
+   - HTTP destinations receive the original envelope and per-rule `X-Jahosi-Webhook-Key`; with a Resend API key configured, `data` additionally includes `text`, `html`, and `headers`
 4. On failure, store in `pending_message` as `PENDING`
 5. Retry every 5 minutes up to 5 attempts
 6. Mark as `FAILED` when retry limit is reached
@@ -43,3 +45,9 @@ Version: v0.0.1
 - `pending_message` - failed/pending queue items
 - `message_audit` - UUID-level audit trail
 - `app_setting` - mutable admin settings (including webhook secret)
+
+## Resend configuration
+- `PUT /api/admin/settings/resend-api-key` accepts `{ "value": "re_..." }`, or an empty value to remove the key. Requires admin authentication and CSRF token.
+- The API key is stored in encrypted persistence as `resend_api_key`. Settings responses replace it with `configured` (or an empty string).
+- `/hook` verifies the raw Svix signature, ignores unrelated events, and returns 400 for malformed received-email events.
+- Resend API, attachment download, SMTP, or endpoint failures use the existing pending queue and automatic/manual retries. Download URLs are retrieved afresh on each attempt.

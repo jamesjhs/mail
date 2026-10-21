@@ -71,6 +71,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ value }),
     }),
+  setResendApiKey: (value: string) =>
+    request<{ success: boolean }>("/api/admin/settings/resend-api-key", {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    }),
   updateAdminAccount: (payload: { email?: string; currentPassword: string; newPassword?: string }) =>
     request<{ success: boolean; email: string }>("/api/admin/settings/account", {
       method: "PUT",

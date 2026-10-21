@@ -62,7 +62,8 @@ export const matchRule = async (prefix: string) => {
   const rules = await all<Rule>(
     `SELECT id, name, pattern, endpoint_url as endpointUrl, pattern_type as patternType, webhook_key as webhookKey, enabled, created_at as createdAt
      FROM routing_rule
-     WHERE enabled = 1`,
+     WHERE enabled = 1
+     ORDER BY id ASC`,
   );
 
   for (const rule of rules) {

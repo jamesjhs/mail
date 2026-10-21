@@ -6,6 +6,7 @@ Jahosi Mail is a TypeScript gateway that receives inbound email payloads from Re
 
 ## Key features
 - Inbound webhook endpoint: `https://mail.jahosi.co.uk/hook`
+- Console-managed forwarding to email addresses or application webhooks
 - Regex/wildcard routing with `{ID}` substitution in destination endpoints
 - Retry queue for failed deliveries (5 attempts, 5-minute intervals)
 - Bounce support and RFC-style DSN notification emails
@@ -16,3 +17,16 @@ Jahosi Mail is a TypeScript gateway that receives inbound email payloads from Re
 ## Main docs
 - `docs/TECHNICAL_REFERENCE.md`
 - `docs/INSTALLATION_AND_TROUBLESHOOTING.md`
+
+## Forward received mail to an inbox
+
+With your Resend `email.received` webhook already pointing to `/hook`:
+
+1. Open the mail console's Settings tab and save a Resend API key with access to received emails and attachments. The saved key is never returned to the browser.
+2. In Rules, enter a name, pattern `apps`, and type Wildcard to match `apps@jahosi.co.uk`.
+3. Choose Email address, enter the destination inbox, and click Add rule. Keep the rule enabled.
+4. Send a test email and check Overview for SUCCESS, or Pending for queued delivery. Once a key or SMTP problem is corrected, use Retry.
+
+Forwarding uses the configured SMTP sender and sets Reply-To to the original sender. It includes text, HTML, and attachments. The first enabled matching rule is used. Do not forward back to a receiving address that routes to the same inbox.
+
+Run `npm test` (Node.js 22.3+ with module mocking support), `npm run build`, and `npm run lint` to verify changes. SQLCipher runtime requires Linux or macOS; on Windows, install backend dependencies for build/test only using `npm ci --force --ignore-scripts`. Tests mock SMTP, Resend, and the database and do not send real mail.

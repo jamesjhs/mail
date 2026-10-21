@@ -1,15 +1,23 @@
 import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
+import { buildForwardedEmail } from "./resend.js";
 
 const transporter = nodemailer.createTransport({
   host: env.SMTP_HOST,
   port: env.SMTP_PORT,
   secure: env.SMTP_SECURE,
+  connectionTimeout: 15_000,
+  socketTimeout: 60_000,
   auth: {
     user: env.SMTP_USER,
     pass: env.SMTP_PASSWORD,
   },
 });
+
+export const forwardEmail = async (to: string, payload: unknown, apiKey: string) => {
+  const message = await buildForwardedEmail(to, payload, apiKey);
+  await transporter.sendMail({ ...message, from: env.SMTP_FROM_ADDRESS });
+};
 
 export const sendMail = async ({
   to,

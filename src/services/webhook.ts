@@ -2,22 +2,11 @@ import { Webhook } from "svix";
 import { randomUUID } from "node:crypto";
 import { all, exec, get } from "../db/sql.js";
 import { matchRule } from "./rules.js";
-import { sendBounceNdr } from "./mail.js";
+import { forwardEmail, sendBounceNdr } from "./mail.js";
 import { getSetting } from "./auth.js";
+import { includeEmailContent, parseReceivedEmail } from "./resend.js";
 
 const retryLimit = 5;
-
-const extractMailAddress = (value: unknown): string => {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value) && typeof value[0] === "string") {
-    return value[0];
-  }
-
-  return "";
-};
 
 const parseRecipientPrefix = (to: string) => {
   const mailbox = to.includes("<") ? to.split("<")[1]?.replace(/[<>]/g, "") ?? to : to;
@@ -34,13 +23,23 @@ const buildDestination = (url: string, extractedId: string) => {
 };
 
 const postPayload = async (endpoint: string, payload: unknown, webhookKey: string) => {
+  const apiKey = (await getSetting("resend_api_key")) ?? "";
+  if (endpoint.startsWith("mailto:") && !apiKey) {
+    throw new Error("Configure the Resend API key in Settings to forward email content");
+  }
+  const forwardedPayload = await includeEmailContent(payload, apiKey);
+  if (endpoint.startsWith("mailto:")) {
+    await forwardEmail(endpoint.slice(7), forwardedPayload, apiKey);
+    return;
+  }
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Jahosi-Webhook-Key": webhookKey,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(forwardedPayload),
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {
@@ -87,10 +86,19 @@ export const verifyWebhookSignature = async ({
 };
 
 export const processInboundMessage = async (payload: unknown) => {
-  const messageId = randomUUID();
+  const received = parseReceivedEmail(payload);
+  if (!received.success) throw new Error("Invalid received email event");
 
-  const sender = extractMailAddress((payload as Record<string, unknown>).from ?? (payload as Record<string, unknown>).sender);
-  const toValue = extractMailAddress((payload as Record<string, unknown>).to ?? (payload as Record<string, unknown>).recipient);
+  // Each recipient gets its own routing result and retry entry.
+  const results = [];
+  for (const recipient of new Set(received.data.data.to.map((address) => address.toLowerCase()))) {
+    results.push(await processRecipient(payload, received.data.data.from, recipient));
+  }
+  return { results };
+};
+
+const processRecipient = async (payload: unknown, sender: string, toValue: string) => {
+  const messageId = randomUUID();
   const recipientPrefix = parseRecipientPrefix(toValue);
 
   const matched = await matchRule(recipientPrefix);

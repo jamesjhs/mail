@@ -17,7 +17,7 @@
     <div class="hero">
       <h1>📬 Jahosi Mail Administrator Help</h1>
       <p class="badge">Version {{VERSION}}</p>
-      <p>Jahosi Mail receives inbound email payloads from Resend and forwards them to downstream APIs using local-prefix routing rules.</p>
+      <p>Jahosi Mail receives email from Resend and forwards it to email addresses or application webhooks using recipient routing rules.</p>
     </div>
 
     <div class="grid">
@@ -27,9 +27,12 @@
       </section>
       <section class="card">
         <h2>Rules</h2>
+        <p>To forward mail for <code>apps@jahosi.co.uk</code>, enter a rule name, set the pattern to <code>apps</code> with type Wildcard, choose Email address, and enter your destination inbox. Click Add rule and leave it enabled.</p>
+        <p>Save your Resend API key in Settings before forwarding to email addresses. Messages include their subject, plain text, HTML, and attachments. Replies go to the original sender; forwarded messages are sent from the gateway's configured sending address.</p>
         <p>Create wildcard or regex rules that match the local part of recipient email addresses (e.g. <code>pingme-(.*)</code>).</p>
+        <p>The first enabled matching rule is used. Avoid overlapping rules and never forward back to the same receiving address. To change a destination, disable the old rule and create its replacement.</p>
         <p>Use <code>{ID}</code> in destination URLs to inject the captured identifier.</p>
-        <p>Each rule has its own webhook key. Generate a secure key when creating a rule, then reveal/copy it from the rules table and validate it downstream via <code>X-Jahosi-Webhook-Key</code>.</p>
+        <p>Application webhook rules have their own key. Generate a secure key when creating a rule, then reveal/copy it from the rules table and validate it downstream via <code>X-Jahosi-Webhook-Key</code>.</p>
       </section>
       <section class="card">
         <h2>Pending Queue</h2>
@@ -47,6 +50,7 @@
         <li>Check <code>/readyz</code> for gateway health.</li>
         <li>Verify webhook secret in Settings if inbound calls are rejected.</li>
         <li>If messages stay pending, validate downstream endpoint availability and response status.</li>
+        <li>For email forwarding, check that the Resend API key can read received emails and attachments, and that SMTP can send to your destination. Save a corrected key in Settings and use Retry in Pending.</li>
       </ul>
     </section>
   </body>

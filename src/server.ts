@@ -10,7 +10,7 @@ import { env } from "./config/env.js";
 import { initializeDatabase } from "./db/sql.js";
 import { requireAdmin } from "./middleware/auth.js";
 import { csrfProtection, issueCsrfToken } from "./middleware/csrf.js";
-import { isPrivateHostname } from "./utils/net.js";
+import { destinationSchema } from "./services/destination.js";
 import {
   consumePasswordReset,
   createChallenge,
@@ -29,6 +29,7 @@ import {
 } from "./services/auth.js";
 import { createRule, deleteRule, generateWebhookKey, listRules, updateRule } from "./services/rules.js";
 import { verifyTurnstile } from "./services/turnstile.js";
+import { parseReceivedEmail } from "./services/resend.js";
 import {
   bounceMessage,
   listAudit,
@@ -241,9 +242,7 @@ app.post("/api/admin/rules", requireAdmin, csrfProtection, async (req, res) => {
     name: z.string().min(1),
     pattern: z.string().min(1).max(maxRegexPatternLength),
     patternType: z.enum(["wildcard", "regex"]),
-    endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
-      message: "Endpoint URL must not point to a private or loopback address",
-    }),
+    endpointUrl: destinationSchema,
     webhookKey: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
   });
 
@@ -262,9 +261,7 @@ app.put("/api/admin/rules/:id", requireAdmin, csrfProtection, async (req, res) =
     name: z.string().min(1),
     pattern: z.string().min(1).max(maxRegexPatternLength),
     patternType: z.enum(["wildcard", "regex"]),
-    endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
-      message: "Endpoint URL must not point to a private or loopback address",
-    }),
+    endpointUrl: destinationSchema,
     webhookKey: z.string().regex(/^[a-f0-9]{64}$/i),
     enabled: z.coerce.number().min(0).max(1),
   });
@@ -327,7 +324,19 @@ app.post("/api/admin/pending/:id/bounce", requireAdmin, csrfProtection, async (r
 
 app.get("/api/admin/settings", requireAdmin, async (_req, res) => {
   const settings = await getSettings();
-  res.json(settings);
+  res.json(settings.map((setting) => setting.key === "resend_api_key"
+    ? { ...setting, value: setting.value ? "configured" : "" }
+    : setting));
+});
+
+app.put("/api/admin/settings/resend-api-key", requireAdmin, csrfProtection, async (req, res) => {
+  const parsed = z.object({ value: z.union([z.literal(""), z.string().trim().regex(/^re_[A-Za-z0-9_-]+$/)]) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a valid Resend API key or an empty value to remove it" });
+    return;
+  }
+  await setSetting("resend_api_key", parsed.data.value);
+  res.json({ success: true });
 });
 
 app.put("/api/admin/settings/webhook-signing-secret", requireAdmin, csrfProtection, async (req, res) => {
@@ -390,7 +399,21 @@ app.post("/hook", webhookLimiter, express.raw({ type: "application/json" }), asy
     return;
   }
 
-  const payload = JSON.parse(rawBody) as unknown;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    res.status(400).json({ error: "Invalid JSON" });
+    return;
+  }
+  if (payload && typeof payload === "object" && "type" in payload && payload.type !== "email.received") {
+    res.status(200).json({ status: "IGNORED" });
+    return;
+  }
+  if (!parseReceivedEmail(payload).success) {
+    res.status(400).json({ error: "Invalid email.received event" });
+    return;
+  }
   const result = await processInboundMessage(payload);
   res.status(202).json(result);
 });

@@ -4,7 +4,7 @@
   "description": "Jahosi Mail gateway server",
   "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"No test suite configured\"",
+    "test": "tsc -p tsconfig.json && node --experimental-test-module-mocks --test tests/*.test.mjs",
     "dev": "tsx watch src/server.ts",
     "build": "npm run build:client && tsc -p tsconfig.json",
     "build:client": "npm run build --prefix client",

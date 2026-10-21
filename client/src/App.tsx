@@ -50,6 +50,9 @@ export function App() {
   const [webhookSecret, setWebhookSecret] = useState("");
   const [secretDirty, setSecretDirty] = useState(false);
   const [secretVisible, setSecretVisible] = useState(false);
+  const [resendApiKey, setResendApiKey] = useState("");
+  const [resendConfigured, setResendConfigured] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
   const [error, setError] = useState("");
   const turnstileWidgetIdRef = useRef<string | null>(null);
 
@@ -147,6 +150,7 @@ export function App() {
       setSavedAdminEmail(me.email);
       setWebhookSecret(settings.find((setting) => setting.key === "webhook_signing_secret")?.value ?? "");
       setSecretDirty(false);
+      setResendConfigured(Boolean(settings.find((setting) => setting.key === "resend_api_key")?.value));
     },
     [page],
   );
@@ -361,6 +365,30 @@ export function App() {
         {tab === "Settings" && (
           <>
             <h2>Security settings</h2>
+            <h3>Resend receiving and forwarding</h3>
+            <p className="subtle">The existing Resend webhook receives incoming mail. Add an API key with permission to read received emails and attachments to forward complete messages using the configured SMTP service.</p>
+            <p>Resend API key: {resendConfigured ? "Configured" : "Not configured"}</p>
+            <label className="stack">
+              Resend API key
+              <input type="password" value={resendApiKey} onChange={(event) => setResendApiKey(event.target.value)} placeholder="re_..." autoComplete="off" />
+            </label>
+            <button disabled={!resendApiKey.trim()} onClick={async () => {
+              try {
+                await api.setResendApiKey(resendApiKey.trim());
+                setResendApiKey("");
+                setResendConfigured(true);
+                setResendMessage("Resend API key saved. Create an email forwarding rule in Rules.");
+              } catch (err) { setResendMessage((err as Error).message); }
+            }}>Save Resend API key</button>
+            <button disabled={!resendConfigured} onClick={async () => {
+              try {
+                await api.setResendApiKey("");
+                setResendConfigured(false);
+                setResendMessage("API key removed. Email forwarding will queue until a key is saved.");
+              } catch (err) { setResendMessage((err as Error).message); }
+            }}>Remove Resend API key</button>
+            {resendMessage && <p role="status">{resendMessage}</p>}
+            <h3>Admin account</h3>
             <label className="stack">
               Admin email
               <input value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} autoComplete="email" />
@@ -458,19 +486,31 @@ function RulesPanel({
   });
   const [draftWebhookVisible, setDraftWebhookVisible] = useState(false);
   const [visibleWebhookKeys, setVisibleWebhookKeys] = useState<Record<number, boolean>>({});
+  const [destinationType, setDestinationType] = useState<"email" | "webhook">("email");
+  const [ruleError, setRuleError] = useState("");
 
   return (
     <>
       <h2>Routing rules</h2>
+      <p className="subtle">Match the part before @: use apps for apps@jahosi.co.uk, or * for all recipients. Email forwarding requires a Resend API key in Settings. Rules are checked in creation order; the first enabled match is used.</p>
       <form
         className="inline-form"
         onSubmit={async (event) => {
           event.preventDefault();
-          const webhookKey = draft.webhookKey.trim() || (await api.generateRuleWebhookKey()).webhookKey;
-          await api.createRule({ ...draft, webhookKey });
-          setDraft({ name: "", pattern: "", patternType: "wildcard", endpointUrl: "", webhookKey: "" });
-          setDraftWebhookVisible(false);
-          await onChanged();
+          setRuleError("");
+          try {
+            const webhookKey = draft.webhookKey.trim() || (await api.generateRuleWebhookKey()).webhookKey;
+            await api.createRule({
+              ...draft,
+              endpointUrl: destinationType === "email" ? `mailto:${draft.endpointUrl.trim()}` : draft.endpointUrl.trim(),
+              webhookKey,
+            });
+            setDraft({ name: "", pattern: "", patternType: "wildcard", endpointUrl: "", webhookKey: "" });
+            setDraftWebhookVisible(false);
+            await onChanged();
+          } catch (err) {
+            setRuleError((err as Error).message);
+          }
         }}
       >
         <input placeholder="Rule name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} required />
@@ -482,13 +522,22 @@ function RulesPanel({
           <option value="wildcard">Wildcard</option>
           <option value="regex">Regex</option>
         </select>
+        <select aria-label="Forwarding destination type" value={destinationType} onChange={(event) => {
+          setDestinationType(event.target.value as "email" | "webhook");
+          setDraft({ ...draft, endpointUrl: "" });
+        }}>
+          <option value="email">Email address</option>
+          <option value="webhook">Application webhook</option>
+        </select>
         <input
-          placeholder="https://example.com/hook/{ID}"
+          aria-label="Forwarding destination"
+          type={destinationType === "email" ? "email" : "url"}
+          placeholder={destinationType === "email" ? "you@example.com" : "https://example.com/hook/{ID}"}
           value={draft.endpointUrl}
           onChange={(e) => setDraft({ ...draft, endpointUrl: e.target.value })}
           required
         />
-        <div className="secret-row">
+        {destinationType === "webhook" && <div className="secret-row">
           <input
             placeholder="Rule webhook key"
             type={draftWebhookVisible ? "text" : "password"}
@@ -508,9 +557,10 @@ function RulesPanel({
           <button type="button" onClick={() => setDraftWebhookVisible((visible) => !visible)}>
             {draftWebhookVisible ? "Hide" : "Show"}
           </button>
-        </div>
+        </div>}
         <button type="submit">Add rule</button>
       </form>
+      {ruleError && <p className="error" role="alert">{ruleError}</p>}
 
       <table>
         <thead>
@@ -518,7 +568,7 @@ function RulesPanel({
             <th>Name</th>
             <th>Pattern</th>
             <th>Type</th>
-            <th>Endpoint</th>
+            <th>Destination</th>
             <th>Webhook key</th>
             <th>Enabled</th>
             <th>Delete</th>
@@ -530,9 +580,9 @@ function RulesPanel({
               <td>{rule.name}</td>
               <td>{rule.pattern}</td>
               <td>{rule.patternType}</td>
-              <td>{rule.endpointUrl}</td>
+              <td>{rule.endpointUrl.replace(/^mailto:/, "")}</td>
               <td>
-                <div className="secret-row">
+                {rule.endpointUrl.startsWith("mailto:") ? "Email forwarding" : <div className="secret-row">
                   <input type={visibleWebhookKeys[rule.id] ? "text" : "password"} value={rule.webhookKey} readOnly />
                   <button
                     type="button"
@@ -550,7 +600,7 @@ function RulesPanel({
                   >
                     Copy
                   </button>
-                </div>
+                </div>}
               </td>
               <td>
                 <input
