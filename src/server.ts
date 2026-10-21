@@ -10,7 +10,7 @@ import { env } from "./config/env.js";
 import { initializeDatabase } from "./db/sql.js";
 import { requireAdmin } from "./middleware/auth.js";
 import { csrfProtection, issueCsrfToken } from "./middleware/csrf.js";
-import { isPrivateHostname } from "./utils/net.js";
+import { isValidEndpoint } from "./utils/net.js";
 import {
   consumePasswordReset,
   createChallenge,
@@ -241,8 +241,8 @@ app.post("/api/admin/rules", requireAdmin, csrfProtection, async (req, res) => {
     name: z.string().min(1),
     pattern: z.string().min(1).max(maxRegexPatternLength),
     patternType: z.enum(["wildcard", "regex"]),
-    endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
-      message: "Endpoint URL must not point to a private or loopback address",
+    endpointUrl: z.string().refine(isValidEndpoint, {
+      message: "Endpoint must be a public http(s) URL or a mailto: address",
     }),
     webhookKey: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
   });
@@ -262,8 +262,8 @@ app.put("/api/admin/rules/:id", requireAdmin, csrfProtection, async (req, res) =
     name: z.string().min(1),
     pattern: z.string().min(1).max(maxRegexPatternLength),
     patternType: z.enum(["wildcard", "regex"]),
-    endpointUrl: z.string().url().refine((u) => !isPrivateHostname(u), {
-      message: "Endpoint URL must not point to a private or loopback address",
+    endpointUrl: z.string().refine(isValidEndpoint, {
+      message: "Endpoint must be a public http(s) URL or a mailto: address",
     }),
     webhookKey: z.string().regex(/^[a-f0-9]{64}$/i),
     enabled: z.coerce.number().min(0).max(1),

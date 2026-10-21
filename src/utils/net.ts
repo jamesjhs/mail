@@ -24,3 +24,19 @@ export const isPrivateHostname = (urlString: string): boolean => {
     return true; // malformed URL — treat as unsafe
   }
 };
+
+/**
+ * Validates a rule destination: either an http(s) URL on a public host,
+ * or a `mailto:` address used to forward the message by email.
+ */
+export const isValidEndpoint = (value: string): boolean => {
+  if (/^mailto:/i.test(value)) {
+    return /^mailto:[^\s@,?]+@[^\s@,?]+\.[^\s@,?]+$/i.test(value);
+  }
+  try {
+    const { protocol } = new URL(value);
+    return (protocol === "http:" || protocol === "https:") && !isPrivateHostname(value);
+  } catch {
+    return false;
+  }
+};

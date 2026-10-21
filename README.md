@@ -7,6 +7,7 @@ Jahosi Mail is a TypeScript gateway that receives inbound email payloads from Re
 ## Key features
 - Inbound webhook endpoint: `https://mail.jahosi.co.uk/hook`
 - Regex/wildcard routing with `{ID}` substitution in destination endpoints
+- Forward-to-email destinations: set a rule endpoint to `mailto:you@gmail.com` (set optional `RESEND_API_KEY` so bodies are fetched from Resend)
 - Retry queue for failed deliveries (5 attempts, 5-minute intervals)
 - Bounce support and RFC-style DSN notification emails
 - Admin dashboard (React PWA) with Turnstile + OTP/magic-link login

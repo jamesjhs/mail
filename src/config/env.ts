@@ -23,6 +23,7 @@ const envSchema = z.object({
   CF_ACCESS_CLIENT_ID: z.string().optional(),
   CF_ACCESS_CLIENT_SECRET: z.string().optional(),
   WEBHOOK_SIGNING_SECRET: z.string().min(1),
+  RESEND_API_KEY: z.string().optional(),
   SQLCIPHER_DB_PATH: z.string().default("./data/mail.db"),
   SQLCIPHER_KEY: z.string().min(1),
 });

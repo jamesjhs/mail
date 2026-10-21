@@ -2,7 +2,8 @@ import { Webhook } from "svix";
 import { randomUUID } from "node:crypto";
 import { all, exec, get } from "../db/sql.js";
 import { matchRule } from "./rules.js";
-import { sendBounceNdr } from "./mail.js";
+import { forwardEmail, sendBounceNdr } from "./mail.js";
+import { env } from "../config/env.js";
 import { getSetting } from "./auth.js";
 
 const retryLimit = 5;
@@ -33,7 +34,54 @@ const buildDestination = (url: string, extractedId: string) => {
   return url.replaceAll("{ID}", encodeURIComponent(extractedId));
 };
 
+const asString = (value: unknown): string => (typeof value === "string" ? value : "");
+
+const fetchReceivedEmail = async (emailId: string): Promise<Record<string, unknown> | null> => {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !emailId) {
+    return null;
+  }
+
+  const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Resend API returned status ${response.status} when fetching email body`);
+  }
+  return (await response.json()) as Record<string, unknown>;
+};
+
+const forwardPayloadByEmail = async (endpoint: string, payload: unknown) => {
+  const to = endpoint.slice("mailto:".length).split("?")[0] ?? "";
+  const root = (payload ?? {}) as Record<string, unknown>;
+  const data = (root.data && typeof root.data === "object" ? root.data : root) as Record<string, unknown>;
+
+  let text = asString(data.text);
+  let html = asString(data.html);
+  if (!text && !html) {
+    const full = await fetchReceivedEmail(asString(data.email_id) || asString(data.id));
+    text = asString(full?.text);
+    html = asString(full?.html);
+  }
+
+  const originalFrom = extractMailAddress(data.from ?? data.sender);
+  const subject = asString(data.subject) || "(no subject)";
+
+  await forwardEmail({
+    to,
+    from: originalFrom,
+    subject: `Fwd: ${subject}`,
+    text: `Forwarded message from ${originalFrom || "unknown sender"}\n\n${text || "(message body unavailable)"}`,
+    html: html || undefined,
+  });
+};
+
 const postPayload = async (endpoint: string, payload: unknown, webhookKey: string) => {
+  if (endpoint.toLowerCase().startsWith("mailto:")) {
+    await forwardPayloadByEmail(endpoint, payload);
+    return;
+  }
+
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {

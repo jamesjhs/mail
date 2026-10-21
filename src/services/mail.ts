@@ -31,6 +31,29 @@ export const sendMail = async ({
   });
 };
 
+export const forwardEmail = async ({
+  to,
+  from,
+  subject,
+  text,
+  html,
+}: {
+  to: string;
+  from: string;
+  subject: string;
+  text: string;
+  html?: string;
+}) => {
+  await transporter.sendMail({
+    from: env.SMTP_FROM_ADDRESS,
+    to,
+    replyTo: from || undefined,
+    subject,
+    text,
+    html,
+  });
+};
+
 export const sendBounceNdr = async ({
   sender,
   messageId,
