@@ -293,9 +293,16 @@ app.post("/api/admin/rules/generate-webhook-key", requireAdmin, csrfProtection, 
 });
 
 app.get("/api/admin/messages", requireAdmin, async (req, res) => {
-  const page = Math.max(1, Number(req.query.page ?? 1));
-  const pageSize = Math.min(100, Math.max(5, Number(req.query.pageSize ?? 20)));
-  res.json(await listAudit(page, pageSize));
+  const query = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(5).max(100).default(20),
+    messageId: z.string().uuid().optional(),
+  }).safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: "Invalid log query" });
+    return;
+  }
+  res.json(await listAudit(query.data.page, query.data.pageSize, query.data.messageId));
 });
 
 app.get("/api/admin/pending", requireAdmin, async (_req, res) => {

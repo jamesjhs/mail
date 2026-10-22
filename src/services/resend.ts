@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SendMailOptions } from "nodemailer";
+import { apiFailure } from "../utils/errors.js";
 
 const receivedEmail = z.object({
   type: z.literal("email.received"),
@@ -24,7 +25,7 @@ export const includeEmailContent = async (payload: unknown, apiKey: string) => {
       signal: AbortSignal.timeout(15_000),
     },
   );
-  if (!response.ok) throw new Error(`Resend content retrieval failed with status ${response.status}`);
+  if (!response.ok) throw await apiFailure(response, "Resend content retrieval");
   const content = z.object({
     text: z.string().nullable(),
     html: z.string().nullable(),
@@ -60,7 +61,7 @@ export const buildForwardedEmail = async (to: string, payload: unknown, apiKey: 
       `https://api.resend.com/emails/receiving/${encodeURIComponent(event.data.email_id)}/attachments/${encodeURIComponent(attachment.id)}`,
       { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(15_000) },
     );
-    if (!response.ok) throw new Error(`Resend attachment retrieval failed with status ${response.status}`);
+    if (!response.ok) throw await apiFailure(response, "Resend attachment retrieval");
     const details = z.object({ download_url: z.string().url() }).parse(await response.json());
     if (new URL(details.download_url).protocol !== "https:") throw new Error("Invalid attachment download URL");
     const download = await fetch(details.download_url, { signal: AbortSignal.timeout(30_000) });

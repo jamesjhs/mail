@@ -35,6 +35,12 @@
         <p>Application webhook rules have their own key. Generate a secure key when creating a rule, then reveal/copy it from the rules table and validate it downstream via <code>X-Jahosi-Webhook-Key</code>.</p>
       </section>
       <section class="card">
+        <h2>Server log</h2>
+        <p>Open Server log to view delivery attempts, UTC timestamps, and failure reasons. Click View log beside a message in Overview or Pending to see just that message. Refresh log fetches the latest results.</p>
+        <p>Pending also shows the latest stored error for existing failed messages. Earlier attempt details are available only for attempts recorded after this update. After correcting the error, click Retry; a failed retry updates the error and the log.</p>
+        <p>Login emails can arrive while forwarding fails: forwarding also needs access to Resend's received message content and attachments. The log identifies Resend API rejection or SMTP forwarding errors.</p>
+      </section>
+      <section class="card">
         <h2>Pending Queue</h2>
         <p>Messages that fail delivery are retried up to five times every five minutes. Admins can manually Retry or Bounce.</p>
       </section>

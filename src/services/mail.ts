@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
 import { buildForwardedEmail } from "./resend.js";
+import { describeError } from "../utils/errors.js";
 
 const transporter = nodemailer.createTransport({
   host: env.SMTP_HOST,
@@ -16,7 +17,11 @@ const transporter = nodemailer.createTransport({
 
 export const forwardEmail = async (to: string, payload: unknown, apiKey: string) => {
   const message = await buildForwardedEmail(to, payload, apiKey);
-  await transporter.sendMail({ ...message, from: env.SMTP_FROM_ADDRESS });
+  try {
+    await transporter.sendMail({ ...message, from: env.SMTP_FROM_ADDRESS });
+  } catch (error) {
+    throw new Error(`SMTP forwarding failed: ${describeError(error)}`);
+  }
 };
 
 export const sendMail = async ({

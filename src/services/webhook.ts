@@ -5,6 +5,7 @@ import { matchRule } from "./rules.js";
 import { forwardEmail, sendBounceNdr } from "./mail.js";
 import { getSetting } from "./auth.js";
 import { includeEmailContent, parseReceivedEmail } from "./resend.js";
+import { describeError, redactDiagnostic } from "../utils/errors.js";
 
 const retryLimit = 5;
 
@@ -47,11 +48,13 @@ const postPayload = async (endpoint: string, payload: unknown, webhookKey: strin
   }
 };
 
-const audit = async (messageId: string, status: string, destination?: string | null) => {
-  await exec("INSERT INTO message_audit (message_id, destination, status) VALUES (?, ?, ?)", [
+const audit = async (messageId: string, status: string, destination?: string | null, error?: string, attempt?: number) => {
+  await exec("INSERT INTO message_audit (message_id, destination, status, error, attempt) VALUES (?, ?, ?, ?, ?)", [
     messageId,
     destination ?? null,
     status,
+    error ?? null,
+    attempt ?? null,
   ]);
 };
 
@@ -120,7 +123,7 @@ const processRecipient = async (payload: unknown, sender: string, toValue: strin
 
   try {
     await postPayload(destination, payload, matched.rule.webhookKey);
-    await audit(messageId, "SUCCESS", destination);
+    await audit(messageId, "SUCCESS", destination, undefined, 1);
     return { messageId, status: "SUCCESS" as const, destination };
   } catch (error) {
     await exec(
@@ -133,10 +136,10 @@ const processRecipient = async (payload: unknown, sender: string, toValue: strin
         toValue,
         destination,
         matched.rule.webhookKey,
-        error instanceof Error ? error.message : "Unknown error",
+        describeError(error),
       ],
     );
-    await audit(messageId, "PENDING", destination);
+    await audit(messageId, "PENDING", destination, describeError(error), 1);
     return { messageId, status: "PENDING" as const, destination };
   }
 };
@@ -159,66 +162,83 @@ export const retryPendingMessages = async () => {
     try {
       await postPayload(item.destination, JSON.parse(item.payload), item.webhook_key);
       await exec("DELETE FROM pending_message WHERE id = ?", [item.id]);
-      await audit(item.id, "SUCCESS_RETRY", item.destination);
+      await audit(item.id, "SUCCESS_RETRY", item.destination, undefined, item.attempts + 1);
     } catch (error) {
       const nextAttempts = item.attempts + 1;
       if (nextAttempts >= retryLimit) {
         await exec(
           "UPDATE pending_message SET status = 'FAILED', attempts = ?, last_attempt = CURRENT_TIMESTAMP, last_error = ? WHERE id = ?",
-          [nextAttempts, error instanceof Error ? error.message : "Unknown error", item.id],
+          [nextAttempts, describeError(error), item.id],
         );
-        await audit(item.id, "FAILED", item.destination);
+        await audit(item.id, "FAILED", item.destination, describeError(error), nextAttempts);
       } else {
         await exec(
           "UPDATE pending_message SET attempts = ?, last_attempt = CURRENT_TIMESTAMP, last_error = ? WHERE id = ?",
-          [nextAttempts, error instanceof Error ? error.message : "Unknown error", item.id],
+          [nextAttempts, describeError(error), item.id],
         );
+        await audit(item.id, "RETRY_FAILED", item.destination, describeError(error), nextAttempts);
       }
     }
   }
 };
 
-export const listAudit = async (page: number, pageSize: number) => {
+export const listAudit = async (page: number, pageSize: number, messageId?: string) => {
   const offset = (page - 1) * pageSize;
   const items = await all<{
+    id: number;
     message_id: string;
     destination: string | null;
     status: string;
     event_time: string;
+    error: string | null;
+    attempt: number | null;
   }>(
-    `SELECT message_id, destination, status, event_time
-     FROM message_audit
-     ORDER BY id DESC
+    `SELECT a.id, a.message_id, a.destination, a.status, a.event_time,
+       COALESCE(a.error, CASE WHEN a.status = p.status THEN p.last_error END) AS error,
+       COALESCE(a.attempt, CASE WHEN a.status = p.status THEN p.attempts END) AS attempt
+     FROM message_audit a
+     LEFT JOIN pending_message p ON p.id = a.message_id
+     ${messageId ? "WHERE a.message_id = ?" : ""}
+     ORDER BY a.id DESC
      LIMIT ? OFFSET ?`,
-    [pageSize, offset],
+    [...(messageId ? [messageId] : []), pageSize, offset],
   );
 
-  const countRow = await get<{ total: number }>("SELECT COUNT(*) as total FROM message_audit");
+  const countRow = await get<{ total: number }>(
+    `SELECT COUNT(*) as total FROM message_audit ${messageId ? "WHERE message_id = ?" : ""}`,
+    messageId ? [messageId] : [],
+  );
 
   return {
     total: countRow?.total ?? 0,
     items: items.map((item) => ({
+      id: item.id,
       messageId: item.message_id,
       destination: item.destination,
       status: item.status,
       eventTime: item.event_time,
+      error: item.error ? redactDiagnostic(item.error) : null,
+      attempt: item.attempt,
     })),
   };
 };
 
-export const listPending = () =>
-  all<{
+export const listPending = async () => {
+  const items = await all<{
     id: string;
     status: string;
     attempts: number;
     destination: string | null;
     last_attempt: string;
     received_at: string;
+    last_error: string | null;
   }>(
-    `SELECT id, status, attempts, destination, last_attempt, received_at
+    `SELECT id, status, attempts, destination, last_attempt, received_at, last_error
      FROM pending_message
      ORDER BY received_at DESC`,
   );
+  return items.map((item) => ({ ...item, last_error: item.last_error ? redactDiagnostic(item.last_error) : null }));
+};
 
 export const retrySingleMessage = async (id: string) => {
   const row = await get<{
@@ -236,14 +256,15 @@ export const retrySingleMessage = async (id: string) => {
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
     await postPayload(row.destination, payload, row.webhook_key);
     await exec("DELETE FROM pending_message WHERE id = ?", [id]);
-    await audit(id, "SUCCESS_RETRY_MANUAL", row.destination);
+    await audit(id, "SUCCESS_RETRY_MANUAL", row.destination, undefined, row.attempts + 1);
     return true;
   } catch (error) {
     const attempts = row.attempts + 1;
     await exec(
       "UPDATE pending_message SET attempts = ?, last_attempt = CURRENT_TIMESTAMP, last_error = ? WHERE id = ?",
-      [attempts, error instanceof Error ? error.message : "Unknown error", id],
+      [attempts, describeError(error), id],
     );
+    await audit(id, "RETRY_FAILED_MANUAL", row.destination, describeError(error), attempts);
     return false;
   }
 };

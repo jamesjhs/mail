@@ -143,6 +143,14 @@ export const initializeDatabase = async () => {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  const auditColumns = await all<{ name: string }>("PRAGMA table_info(message_audit)");
+  if (!auditColumns.some((column) => column.name === "error")) {
+    await run("ALTER TABLE message_audit ADD COLUMN error TEXT");
+  }
+  if (!auditColumns.some((column) => column.name === "attempt")) {
+    await run("ALTER TABLE message_audit ADD COLUMN attempt INTEGER");
+  }
 };
 
 export const exec = run;

@@ -60,8 +60,8 @@ export const api = {
     }),
   deleteRule: (id: number) => request<{ success: boolean }>(`/api/admin/rules/${id}`, { method: "DELETE" }),
   generateRuleWebhookKey: () => request<{ webhookKey: string }>("/api/admin/rules/generate-webhook-key", { method: "POST" }),
-  listAudit: (page: number, pageSize = 20) =>
-    request<{ total: number; items: AuditItem[] }>(`/api/admin/messages?page=${page}&pageSize=${pageSize}`),
+  listAudit: (page: number, pageSize = 20, messageId = "") =>
+    request<{ total: number; items: AuditItem[] }>(`/api/admin/messages?page=${page}&pageSize=${pageSize}${messageId ? `&messageId=${encodeURIComponent(messageId)}` : ""}`),
   listPending: () => request<PendingItem[]>("/api/admin/pending"),
   retryPending: (id: string) => request<{ success: boolean }>(`/api/admin/pending/${id}/retry`, { method: "POST" }),
   bouncePending: (id: string) => request<{ success: boolean }>(`/api/admin/pending/${id}/bounce`, { method: "POST" }),

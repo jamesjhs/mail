@@ -9,10 +9,13 @@ export interface Rule {
 }
 
 export interface AuditItem {
+  id: number;
   messageId: string;
   destination: string | null;
   status: string;
   eventTime: string;
+  error: string | null;
+  attempt: number | null;
 }
 
 export interface PendingItem {
@@ -22,4 +25,5 @@ export interface PendingItem {
   destination: string | null;
   last_attempt: string;
   received_at: string;
+  last_error: string | null;
 }

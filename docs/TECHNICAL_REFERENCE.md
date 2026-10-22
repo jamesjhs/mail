@@ -47,6 +47,9 @@ Version: v0.0.1
 - `app_setting` - mutable admin settings (including webhook secret)
 
 ## Resend configuration
+- The console Server log uses authenticated `GET /api/admin/messages?page=1&pageSize=20&messageId=<optional-uuid>`. Results include audit ID, UTC time, status, attempt, destination, and error. Pagination inputs are validated and the UUID filter is parameterized.
+- The startup migration adds nullable `error` and `attempt` columns to `message_audit`. Every new delivery failure, including automatic and manual retries, records a diagnostic. Historic FAILED/PENDING entries can display the latest error from the retained pending row; past attempt details cannot be reconstructed after deletion.
+- `GET /api/admin/pending` includes `last_error`. Diagnostics redact API keys, bearer tokens, URL credentials, and signed URL query strings, and exclude email bodies and attachment content.
 - `PUT /api/admin/settings/resend-api-key` accepts `{ "value": "re_..." }`, or an empty value to remove the key. Requires admin authentication and CSRF token.
 - The API key is stored in encrypted persistence as `resend_api_key`. Settings responses replace it with `configured` (or an empty string).
 - `/hook` verifies the raw Svix signature, ignores unrelated events, and returns 400 for malformed received-email events.

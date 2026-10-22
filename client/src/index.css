@@ -72,8 +72,20 @@ button.active {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
+}
+
+.log-table-wrap {
+  overflow-x: auto;
+}
+
+.log-error {
+  min-width: 220px;
+  max-width: 420px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .subtle {

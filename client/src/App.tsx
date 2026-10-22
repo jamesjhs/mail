@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "./api";
-import type { PendingItem, Rule } from "./types";
+import type { AuditItem, PendingItem, Rule } from "./types";
 
 declare global {
   interface Window {
@@ -20,7 +20,7 @@ declare global {
   }
 }
 
-const tabs = ["Overview", "Rules", "Pending", "Settings", "Help"] as const;
+const tabs = ["Overview", "Rules", "Pending", "Server log", "Settings", "Help"] as const;
 const turnstileLoadRetryMs = 250;
 const maxTurnstileLoadAttempts = 40;
 
@@ -38,10 +38,11 @@ export function App() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [audit, setAudit] = useState<{
     total: number;
-    items: Array<{ messageId: string; destination: string | null; status: string; eventTime: string }>;
+    items: AuditItem[];
   }>({ total: 0, items: [] });
   const [page, setPage] = useState(1);
   const [pending, setPending] = useState<PendingItem[]>([]);
+  const [logMessageId, setLogMessageId] = useState("");
   const [helpHtml, setHelpHtml] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [savedAdminEmail, setSavedAdminEmail] = useState("");
@@ -291,9 +292,9 @@ export function App() {
               </thead>
               <tbody>
                 {audit.items.map((item) => (
-                  <tr key={item.messageId ?? "x"}>
+                  <tr key={item.id}>
                     <td>{item.messageId}</td>
-                    <td>{item.status}</td>
+                    <td>{item.status}<br /><button onClick={() => { setLogMessageId(item.messageId); setTab("Server log"); }}>View log</button></td>
                     <td>{item.destination || "n/a"}</td>
                     <td>{item.eventTime}</td>
                   </tr>
@@ -320,6 +321,7 @@ export function App() {
         {tab === "Pending" && (
           <>
             <h2>Pending/failed queue</h2>
+            <button onClick={() => refreshAdminData().catch((err) => setError(String(err)))}>Refresh queue</button>
             <table>
               <thead>
                 <tr>
@@ -327,6 +329,8 @@ export function App() {
                   <th>Status</th>
                   <th>Attempts</th>
                   <th>Destination</th>
+                  <th>Last error</th>
+                  <th>Last attempt (UTC)</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -337,11 +341,20 @@ export function App() {
                     <td>{item.status}</td>
                     <td>{item.attempts}</td>
                     <td>{item.destination ?? "n/a"}</td>
+                    <td className="log-error">{item.last_error || "No error detail recorded"}</td>
+                    <td>{item.last_attempt}</td>
                     <td className="action-cell">
+                      <button onClick={() => { setLogMessageId(item.id); setTab("Server log"); }}>View log</button>
                       <button
                         onClick={async () => {
-                          await api.retryPending(item.id);
-                          await refreshAdminData();
+                          try {
+                            await api.retryPending(item.id);
+                            setError("");
+                          } catch {
+                            setError("Retry failed. Check the updated Last error or open View log for details.");
+                          } finally {
+                            await refreshAdminData().catch((err) => setError(String(err)));
+                          }
                         }}
                       >
                         Retry
@@ -361,6 +374,8 @@ export function App() {
             </table>
           </>
         )}
+
+        {tab === "Server log" && <ServerLogPanel messageId={logMessageId} onClear={() => setLogMessageId("")} />}
 
         {tab === "Settings" && (
           <>
@@ -468,6 +483,56 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function ServerLogPanel({ messageId, onClear }: { messageId: string; onClear: () => void }) {
+  const [page, setPage] = useState(1);
+  const [logs, setLogs] = useState<{ total: number; items: AuditItem[] }>({ total: 0, items: [] });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const result = await api.listAudit(page, 20, messageId);
+        if (!cancelled) setLogs(result);
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 0);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [page, messageId, refresh]);
+
+  return <>
+    <h2>Server delivery log</h2>
+    <p className="subtle">Delivery results and failure reasons recorded by the server. Login email delivery does not check Resend access to received messages or attachments. Times are UTC.</p>
+    <p className="subtle">Older entries show the last stored failure when available; earlier attempt details were not recorded.</p>
+    {messageId && <p>Message: <code>{messageId}</code> <button onClick={() => { setPage(1); onClear(); }}>Show all messages</button></p>}
+    <button disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{loading ? "Loading…" : "Refresh log"}</button>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="log-table-wrap" aria-busy={loading}>
+      <table>
+        <thead><tr><th>Time (UTC)</th><th>Message</th><th>Status</th><th>Attempt</th><th>Destination</th><th>Details</th></tr></thead>
+        <tbody>{logs.items.map((item) => <tr key={item.id}>
+          <td>{item.eventTime}</td><td>{item.messageId}</td><td>{item.status}</td><td>{item.attempt ?? "—"}</td>
+          <td>{item.destination?.replace(/^mailto:/, "") || "—"}</td>
+          <td className="log-error">{item.error || (item.status.startsWith("SUCCESS") ? "Delivered" : "No error detail recorded")}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    {!loading && !error && logs.items.length === 0 && <p>No delivery log entries found.</p>}
+    <div className="pager">
+      <button disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Prev</button>
+      <span>Page {page} · {logs.total} entries</span>
+      <button disabled={page * 20 >= logs.total || loading} onClick={() => setPage((value) => value + 1)}>Next</button>
+    </div>
+  </>;
 }
 
 function RulesPanel({

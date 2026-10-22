@@ -6,10 +6,12 @@ const statements = [];
 const sent = [];
 let pending = [];
 let smtpError;
+let auditRows = [];
+let manualRow;
 const rule = { endpointUrl: "mailto:owner@example.net", webhookKey: "key", pattern: "apps", patternType: "wildcard" };
 await mock.module("../dist/db/sql.js", { namedExports: {
-  all: async (sql) => sql.includes("routing_rule") ? [rule] : pending,
-  get: async () => undefined,
+  all: async (sql) => sql.includes("routing_rule") ? [rule] : sql.includes("FROM message_audit") ? auditRows : pending,
+  get: async (sql) => sql.includes("COUNT(*)") ? { total: auditRows.length } : manualRow,
   exec: async (...args) => { statements.push(args); },
 } });
 await mock.module("../dist/services/auth.js", { namedExports: {
@@ -22,7 +24,8 @@ await mock.module("../dist/config/env.js", { namedExports: { env: {
 await mock.module("nodemailer", { defaultExport: {
   createTransport: () => ({ sendMail: async (message) => { if (smtpError) throw smtpError; sent.push(message); } }),
 } });
-const { processInboundMessage, retryPendingMessages, verifyWebhookSignature } = await import("../dist/services/webhook.js");
+const { processInboundMessage, retryPendingMessages, retrySingleMessage, listAudit, listPending, verifyWebhookSignature } = await import("../dist/services/webhook.js");
+const { describeError, redactDiagnostic } = await import("../dist/utils/errors.js");
 const { parseReceivedEmail, buildForwardedEmail } = await import("../dist/services/resend.js");
 const { destinationSchema } = await import("../dist/services/destination.js");
 const { Webhook } = await import("svix");
@@ -38,6 +41,8 @@ beforeEach(() => {
   sent.length = 0;
   pending = [];
   smtpError = undefined;
+  auditRows = [];
+  manualRow = undefined;
   settings.clear();
   settings.set("resend_api_key", "re_test");
   rule.endpointUrl = "mailto:owner@example.net";
@@ -94,7 +99,7 @@ test("SMTP failure queues the message for the email destination", async () => {
   assert.equal((await processInboundMessage(event())).results[0].status, "PENDING");
   const insert = statements.find(([sql]) => sql.includes("INSERT INTO pending_message"));
   assert.equal(insert[1][4], "mailto:owner@example.net");
-  assert.equal(insert[1][6], "SMTP unavailable");
+  assert.equal(insert[1][6], "SMTP forwarding failed: SMTP unavailable");
 });
 
 test("an attachment retrieval failure queues the message without sending a partial email", async () => {
@@ -153,4 +158,58 @@ test("verifies the raw Resend webhook signature", async () => {
   const headers = { "svix-id": "event-1", "svix-timestamp": String(Math.floor(now.getTime() / 1000)), "svix-signature": new Webhook(secret).sign("event-1", now, body) };
   assert.equal(await verifyWebhookSignature({ rawBody: body, headers }), true);
   assert.equal(await verifyWebhookSignature({ rawBody: body + " ", headers }), false);
+});
+
+test("delivery log records the stage and Resend rejection reason without credentials", async () => {
+  fetch.mock.mockImplementation(async () => Response.json({ message: "API key re_secret123 cannot read receiving emails" }, { status: 403 }));
+  await processInboundMessage(event());
+  const log = statements.find(([sql]) => sql.includes("INSERT INTO message_audit"));
+  assert.equal(log[1][2], "PENDING");
+  assert.equal(log[1][4], 1);
+  assert.match(log[1][3], /Resend content retrieval failed with status 403/);
+  assert.match(log[1][3], /cannot read receiving emails/);
+  assert.ok(!log[1][3].includes("re_secret123"));
+});
+
+test("automatic failed attempts each produce a diagnostic log including final FAILED", async () => {
+  pending = [{ id: "queued-1", payload: JSON.stringify(event()), destination: rule.endpointUrl, webhook_key: "key", attempts: 1 }];
+  smtpError = Object.assign(new Error("Connection refused"), { code: "ECONNECTION", responseCode: 421 });
+  await retryPendingMessages();
+  let logs = statements.filter(([sql]) => sql.includes("INSERT INTO message_audit"));
+  assert.equal(logs[0][1][2], "RETRY_FAILED");
+  assert.equal(logs[0][1][4], 2);
+  assert.match(logs[0][1][3], /ECONNECTION, 421/);
+  pending[0].attempts = 4;
+  await retryPendingMessages();
+  logs = statements.filter(([sql]) => sql.includes("INSERT INTO message_audit"));
+  assert.equal(logs[1][1][2], "FAILED");
+  assert.equal(logs[1][1][4], 5);
+});
+
+test("manual retry failure persists the updated error and logs the attempt", async () => {
+  manualRow = { payload: JSON.stringify(event()), destination: rule.endpointUrl, webhook_key: "key", attempts: 5 };
+  settings.clear();
+  assert.equal(await retrySingleMessage("failed-1"), false);
+  const log = statements.find(([sql]) => sql.includes("INSERT INTO message_audit"));
+  assert.equal(log[1][2], "RETRY_FAILED_MANUAL");
+  assert.equal(log[1][4], 6);
+  assert.match(log[1][3], /Configure the Resend API key/);
+});
+
+test("log and pending API results expose diagnostic details with secrets redacted", async () => {
+  auditRows = [{ id: 1, message_id: "failed-1", status: "FAILED", event_time: "2026-10-22 10:00:00", attempt: 5, error: "Denied re_secret123", destination: rule.endpointUrl }];
+  const log = await listAudit(1, 20);
+  assert.equal(log.total, 1);
+  assert.equal(log.items[0].attempt, 5);
+  assert.equal(log.items[0].error, "Denied [redacted]");
+  pending = [{ id: "failed-1", last_error: "Bad secret whsec_abc123" }];
+  assert.equal((await listPending())[0].last_error, "Bad secret [redacted]");
+});
+
+test("network codes remain useful and signed URLs and bearer tokens are redacted", () => {
+  assert.match(describeError(new Error("fetch failed", { cause: { code: "ENOTFOUND" } })), /ENOTFOUND/);
+  const detail = redactDiagnostic("Bearer secret-value https://download.example.net/file?Signature=private https://user:password@example.net");
+  assert.ok(!detail.includes("secret-value"));
+  assert.ok(!detail.includes("Signature=private"));
+  assert.ok(!detail.includes("password"));
 });
