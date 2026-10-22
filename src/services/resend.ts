@@ -30,17 +30,19 @@ export const includeEmailContent = async (payload: unknown, apiKey: string) => {
     text: z.string().nullable(),
     html: z.string().nullable(),
     headers: z.record(z.string(), z.string()),
+    reply_to: z.array(z.string()).optional(),
   }).parse(await response.json());
   return { ...parsed.data, data: { ...parsed.data.data, ...content } };
 };
 
-export const buildForwardedEmail = async (to: string, payload: unknown, apiKey: string): Promise<SendMailOptions> => {
+export const buildForwardedEmail = async (to: string, payload: unknown, apiKey: string, sendingAddress: string): Promise<SendMailOptions> => {
   const event = receivedEmail.parse(payload);
   const email = z.object({
     text: z.string().nullable(),
     html: z.string().nullable(),
     subject: z.string().default(""),
     headers: z.record(z.string(), z.string()),
+    reply_to: z.array(z.string()).optional(),
     attachments: z.array(z.object({
       id: z.string(),
       filename: z.string().nullable(),
@@ -49,6 +51,25 @@ export const buildForwardedEmail = async (to: string, payload: unknown, apiKey: 
       content_id: z.string().nullable().optional(),
     })).default([]),
   }).parse(event.data);
+  const singleLine = (value: string) => value.replace(/[\r\n]+[ \t]*/g, " ").trim();
+  const header = (name: string) => singleLine(Object.entries(email.headers).find(([key]) => key.toLowerCase() === name)?.[1] ?? "");
+  const originalFrom = header("from") || singleLine(event.data.from);
+  const replyTo = header("reply-to") || email.reply_to?.map(singleLine).filter(Boolean).join(", ") || originalFrom;
+  const metadata = [
+    ["From", originalFrom],
+    ["To", event.data.to.join(", ")],
+    ["Date", header("date")],
+    ["Subject", singleLine(email.subject)],
+    ["Reply-To", replyTo],
+  ].filter(([, value]) => value);
+  const textHeader = ["---------- Forwarded message ----------", ...metadata.map(([name, value]) => `${name}: ${value}`)].join("\n");
+  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+  const htmlHeader = `<div style="border-bottom:1px solid #ccc;padding:0 0 12px;margin:0 0 12px"><strong>Forwarded message</strong><br>${metadata.map(([name, value]) => `<strong>${name}:</strong> ${escapeHtml(value)}`).join("<br>")}</div>`;
+  const html = email.html
+    ? /<body\b[^>]*>/i.test(email.html)
+      ? email.html.replace(/<body\b[^>]*>/i, (bodyTag) => bodyTag + htmlHeader)
+      : htmlHeader + email.html
+    : undefined;
   if (Object.keys(email.headers).some((header) => header.toLowerCase() === "x-jahosi-forwarded")) {
     throw new Error("Forwarding loop detected");
   }
@@ -75,11 +96,12 @@ export const buildForwardedEmail = async (to: string, payload: unknown, apiKey: 
     });
   }
   return {
+    from: { name: `${originalFrom} via Jahosi Mail`, address: sendingAddress },
     to,
-    replyTo: event.data.from,
+    replyTo,
     subject: email.subject,
-    text: email.text ?? undefined,
-    html: email.html ?? undefined,
+    text: email.text !== null || !email.html ? `${textHeader}\n\n${email.text ?? ""}` : undefined,
+    html,
     attachments,
     headers: { "X-Jahosi-Forwarded": event.data.email_id },
     disableFileAccess: true,

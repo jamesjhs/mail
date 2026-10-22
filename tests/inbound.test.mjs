@@ -54,10 +54,11 @@ test("Resend envelope routes apps to SMTP with body and original reply address",
   assert.equal(result.results[0].status, "SUCCESS");
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, "owner@example.net");
-  assert.equal(sent[0].from, "gateway@example.net");
+  assert.deepEqual(sent[0].from, { name: "Sender <sender@example.org> via Jahosi Mail", address: "gateway@example.net" });
   assert.equal(sent[0].replyTo, "Sender <sender@example.org>");
-  assert.equal(sent[0].text, "Hello");
-  assert.equal(sent[0].html, "<p>Hello</p>");
+  assert.match(sent[0].text, /From: Sender <sender@example.org>/);
+  assert.ok(sent[0].text.endsWith("Hello"));
+  assert.ok(sent[0].html.endsWith("<p>Hello</p>"));
   assert.equal(sent[0].subject, "A test message");
   assert.equal(sent[0].headers["X-Jahosi-Forwarded"], "email-1");
   assert.equal(fetch.mock.calls[0].arguments[1].headers.Authorization, "Bearer re_test");
@@ -77,6 +78,38 @@ test("retrieves attachment bytes without forwarding API credentials to download 
   assert.equal(attachment.cid, "img1");
   assert.equal(attachment.contentDisposition, "inline");
   assert.equal(fetch.mock.calls[2].arguments[1].headers, undefined);
+});
+
+test("preserves the original sender name and mixed-case Reply-To header", async () => {
+  fetch.mock.mockImplementation(async () => Response.json({
+    ...content(),
+    headers: { From: '"Jane Example" <jane@example.org>', "Reply-To": 'Support <support@example.org>', Date: "Thu, 22 Oct 2026 10:00:00 +0100" },
+    reply_to: ["fallback@example.org"],
+  }));
+  await processInboundMessage(event());
+  assert.equal(sent[0].replyTo, "Support <support@example.org>");
+  assert.equal(sent[0].from.address, "gateway@example.net");
+  assert.match(sent[0].from.name, /Jane Example/);
+  assert.match(sent[0].text, /From: "Jane Example" <jane@example.org>/);
+  assert.match(sent[0].text, /Reply-To: Support <support@example.org>/);
+});
+
+test("uses the received-email API reply_to field when the header is absent", async () => {
+  fetch.mock.mockImplementation(async () => Response.json({ ...content(), reply_to: ["support@example.org", "help@example.org"] }));
+  await processInboundMessage(event());
+  assert.equal(sent[0].replyTo, "support@example.org, help@example.org");
+});
+
+test("escapes sender metadata and inserts forwarded details inside an HTML document", async () => {
+  fetch.mock.mockImplementation(async () => Response.json({
+    text: null, html: '<!doctype html><html><body class="mail"><p>Original message</p></body></html>',
+    headers: { from: '<img src=x onerror=alert(1)> <sender@example.org>' },
+  }));
+  await processInboundMessage(event());
+  assert.match(sent[0].html, /<body class="mail"><div/);
+  assert.ok(sent[0].html.includes("&lt;img src=x onerror=alert(1)&gt;"));
+  assert.ok(!sent[0].html.includes("<img src=x"));
+  assert.equal(sent[0].text, undefined);
 });
 
 test("missing API key queues original event for retry rather than sending an empty email", async () => {
@@ -126,8 +159,8 @@ test("retry uses saved mail destination and retrieves fresh content", async () =
 
 test("forwarding loops and direct self forwarding do not send messages", async () => {
   const message = { ...event().data, ...content(), headers: { "x-jahosi-forwarded": "previous" } };
-  await assert.rejects(buildForwardedEmail("owner@example.net", { ...event(), data: message }, "re_test"), /loop/);
-  await assert.rejects(buildForwardedEmail("apps@jahosi.co.uk", { ...event(), data: { ...message, headers: {} } }, "re_test"), /original recipient/);
+  await assert.rejects(buildForwardedEmail("owner@example.net", { ...event(), data: message }, "re_test", "gateway@example.net"), /loop/);
+  await assert.rejects(buildForwardedEmail("apps@jahosi.co.uk", { ...event(), data: { ...message, headers: {} } }, "re_test", "gateway@example.net"), /original recipient/);
   assert.equal(sent.length, 0);
 });
 

@@ -29,6 +29,6 @@ With your Resend `email.received` webhook already pointing to `/hook`:
 
 To diagnose FAILED messages, read Last error in Pending or click View log for that message. Server log lists delivery attempts and failure reasons with refresh and pagination. Existing failures show their last stored reason when the queue row is still retained. New retry failures remain in the audit log even after a later successful retry.
 
-Forwarding uses the configured SMTP sender and sets Reply-To to the original sender. It includes text, HTML, and attachments. The first enabled matching rule is used. Do not forward back to a receiving address that routes to the same inbox.
+Forwarding uses the configured SMTP sender address with the original sender in the display name (“via Jahosi Mail”). Reply-To preserves the original Reply-To header or API reply_to value, falling back to the original sender. A forwarded-message block preserves sender, recipient, date, subject, and reply address in the body. Text, HTML, and attachments are included. The first enabled matching rule is used. Do not forward back to a receiving address that routes to the same inbox.
 
 Run `npm test` (Node.js 22.3+ with module mocking support), `npm run build`, and `npm run lint` to verify changes. SQLCipher runtime requires Linux or macOS; on Windows, install backend dependencies for build/test only using `npm ci --force --ignore-scripts`. Tests mock SMTP, Resend, and the database and do not send real mail.
