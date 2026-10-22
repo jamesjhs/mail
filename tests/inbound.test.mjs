@@ -54,7 +54,7 @@ test("Resend envelope routes apps to SMTP with body and original reply address",
   assert.equal(result.results[0].status, "SUCCESS");
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, "owner@example.net");
-  assert.deepEqual(sent[0].from, { name: "Sender <sender@example.org> via Jahosi Mail", address: "gateway@example.net" });
+  assert.deepEqual(sent[0].from, { name: "Sender via Jahosi Mail", address: "gateway@example.net" });
   assert.equal(sent[0].replyTo, "Sender <sender@example.org>");
   assert.match(sent[0].text, /From: Sender <sender@example.org>/);
   assert.ok(sent[0].text.endsWith("Hello"));

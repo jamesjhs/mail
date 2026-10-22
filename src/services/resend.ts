@@ -54,6 +54,13 @@ export const buildForwardedEmail = async (to: string, payload: unknown, apiKey: 
   const singleLine = (value: string) => value.replace(/[\r\n]+[ \t]*/g, " ").trim();
   const header = (name: string) => singleLine(Object.entries(email.headers).find(([key]) => key.toLowerCase() === name)?.[1] ?? "");
   const originalFrom = header("from") || singleLine(event.data.from);
+  // Some SMTP providers reject a quoted display name containing another mailbox.
+  // Keep the original full address in Reply-To and the forwarded-message block.
+  const displayName = (originalFrom.includes("<") ? originalFrom.split("<")[0] : "")
+    .replace(/[^\p{L}\p{N}\s._-]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
   const replyTo = header("reply-to") || email.reply_to?.map(singleLine).filter(Boolean).join(", ") || originalFrom;
   const metadata = [
     ["From", originalFrom],
@@ -96,7 +103,7 @@ export const buildForwardedEmail = async (to: string, payload: unknown, apiKey: 
     });
   }
   return {
-    from: { name: `${originalFrom} via Jahosi Mail`, address: sendingAddress },
+    from: { name: displayName ? `${displayName} via Jahosi Mail` : "Jahosi Mail", address: sendingAddress },
     to,
     replyTo,
     subject: email.subject,
